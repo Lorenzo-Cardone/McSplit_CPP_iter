@@ -25,6 +25,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#define NEIGHBORING_DISTANCE 1
 
 using std::vector;
 using std::cout;
@@ -546,7 +547,7 @@ uint find_smallest_and_move_to_back (vector<int> &nodes, uint start, uint end, i
     return smallest;
 }
 
-uint compute_map_difference (const std::unordered_map<size_t, unsigned int> &map_v, const std::unordered_map<size_t, unsigned int> &map_w)
+uint compute_map_difference (const std::unordered_map<long, size_t> &map_v, const std::unordered_map<long, size_t> &map_w)
 {
     uint diff = 0;
     for (std::pair<size_t, unsigned int> label_v : map_v) {
@@ -571,6 +572,36 @@ uint solve_first_graph (vector<int> &nodes, Bidomain &bd)
     //println!("v: {} {}", bd.left_start, bd.left_len);
     uint vtx = find_smallest_and_move_to_back(nodes, bd.l, bd.l + bd.left_len, -1);
     bd.left_len -= 1;
+    return vtx;
+}
+
+uint find_most_similar_and_move_to_back (vector<int> &nodes, uint start, uint end, const std::unordered_set<size_t> &selected_w, const std::unordered_map<long, size_t> &labels_v, const vector<std::unordered_map<long, size_t>> &labels_w)
+{
+    uint most_similar = UINT_MAX;
+    uint idx_most_similar = UINT_MAX;
+    for (uint idx = start; idx < end; idx++) {
+        if (selected_w.contains(nodes[idx])) {
+            continue;
+        }
+        uint diff = compute_map_difference(labels_v, labels_w[idx]);
+        if (most_similar > diff) {
+            most_similar = diff;
+            idx_most_similar = idx;
+        }
+    }
+    if (idx_most_similar != UINT_MAX) {
+        most_similar = nodes[idx_most_similar];
+        nodes[idx_most_similar] = nodes [end - 1];
+        nodes[end - 1] = (int)most_similar;
+    }
+    return most_similar;
+}
+
+uint solve_second_graph (vector<int> &nodes, const Graph & g0, const Graph & g1, Bidomain &bd, size_t v, const std::unordered_set<size_t> &selected_w)
+{
+    //println!("w: {} {}", bd.right_start, bd.right_len);
+    uint vtx = find_most_similar_and_move_to_back(nodes, bd.r, bd.r + bd.right_len, selected_w, g0.neighboring_labels[v], g1.neighboring_labels);
+    bd.right_len -= 1;
     return vtx;
 }
 
@@ -600,6 +631,7 @@ void new_solve (const Graph & g0, const Graph & g1,
     vector<VtxPair> current_sol;
     vector<uint> current_bidomain = vector<uint>(max_size, 0);
     vector<vector<Bidomain>> bidomains = vector<vector<Bidomain>>();
+    vector<std::unordered_set<size_t>> selected_w = vector<std::unordered_set<size_t>>(max_size, std::unordered_set<size_t>());
 
     bidomains.emplace_back(starting_bidomain);
 
@@ -633,6 +665,7 @@ void new_solve (const Graph & g0, const Graph & g1,
                 continue;
             }
             w = -1;
+            selected_w[depth/2].clear();
             current_bidomain[depth/2] = select_bidomain(bidomains[depth/2], left, current_sol.size());
             if (current_bidomain[depth/2] == UINT_MAX) {
                 depth -= 1;
@@ -649,7 +682,9 @@ void new_solve (const Graph & g0, const Graph & g1,
             depth += 1;
         }
         else {
-            w = solve_second_graph(right, bidomains[depth/2][current_bidomain[depth/2]], w);
+            w = solve_second_graph(right, g0, g1, bidomains[depth/2][current_bidomain[depth/2]], v, selected_w[depth/2]);
+            //w = solve_second_graph(right, bidomains[depth/2][current_bidomain[depth/2]], w);
+            selected_w[depth/2].insert(w);
             if (w != -1) { 
                 current_sol.emplace_back(VtxPair(v, w));
 
@@ -1082,6 +1117,9 @@ struct timespec s, finish;
 
     struct Graph g0_sorted = induced_subgraph(g0, vv0);
     struct Graph g1_sorted = induced_subgraph(g1, vv1);
+
+    g0_sorted.initialize_neighboring_labels(NEIGHBORING_DISTANCE);
+    g1_sorted.initialize_neighboring_labels(NEIGHBORING_DISTANCE);
 
     std::pair<vector<VtxPair>, unsigned long long> solution = mcs(g0_sorted, g1_sorted);
 

@@ -17,6 +17,7 @@ Graph::Graph(unsigned int n) {
     this->n = n;
     label = std::vector<unsigned int>(n, 0u);
     adjset = {n, std::unordered_map<size_t, unsigned int>()};
+    neighboring_labels = std::vector<std::unordered_map<long int, size_t>>(n);
 }
 
 Graph induced_subgraph(struct Graph& g, std::vector<int> vv) {
