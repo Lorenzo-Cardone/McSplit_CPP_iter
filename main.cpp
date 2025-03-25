@@ -40,13 +40,13 @@ static void fail(std::string msg) {
     exit(1);
 }
 
-enum Heuristic { min_max, min_product };
+enum Heuristic { min_max, min_product, min_right };
 
 /*******************************************************************************
                              Command-line arguments
 *******************************************************************************/
 
-static char doc[] = "Find a maximum clique in a graph in DIMACS format\vHEURISTIC can be min_max or min_product";
+static char doc[] = "Find a maximum clique in a graph in DIMACS format\vHEURISTIC can be min_max, min_product, or min_right";
 static char args_doc[] = "HEURISTIC FILENAME1 FILENAME2";
 static struct argp_option options[] = {
     {"quiet", 'q', 0, 0, "Quiet output"},
@@ -154,8 +154,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
                     arguments.heuristic = min_max;
                 else if (std::string(arg) == "min_product")
                     arguments.heuristic = min_product;
+                else if (std::string(arg) == "min_right")
+                    arguments.heuristic = min_right;
                 else
-                    fail("Unknown heuristic (try min_max or min_product)");
+                    fail("Unknown heuristic (try min_max, min_product, or min_right)");
             } else if (arguments.arg_num == 1) {
                 arguments.filename1 = arg;
             } else if (arguments.arg_num == 2) {
@@ -421,9 +423,14 @@ int select_bidomain(const vector<Bidomain>& domains, const vector<int> & left,
     for (unsigned int i=0; i<domains.size(); i++) {
         const Bidomain &bd = domains[i];
         if (arguments.connected && current_matching_size>0 && !bd.is_adjacent) continue;
-        int len = arguments.heuristic == min_max ?
-                std::max(bd.left_len, bd.right_len) :
-                bd.left_len * bd.right_len;
+        int len = 0;
+        if (arguments.heuristic == min_max) {
+            len = std::max(bd.left_len, bd.right_len);
+        } else if (arguments.heuristic == min_product) {
+            len = bd.left_len * bd.right_len;
+        } else if (arguments.heuristic == min_right) {
+            len = bd.right_len;
+        }
         if (len < min_size) {
             min_size = len;
             min_tie_breaker = find_min_value(left, bd.l, bd.left_len);
