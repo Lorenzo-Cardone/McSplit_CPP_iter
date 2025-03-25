@@ -67,16 +67,23 @@ struct Graph readDimacsGraph(char* filename, bool directed, bool vertex_labelled
         if (nchar > 0) {
             switch (line[0]) {
             case 'p':
-                if (sscanf(line, "p edge %d %d", &nvertices, &medges)!=2)
+            {
+                if ( sscanf(line, "p edge %d %d", &nvertices, &medges) != 2 )
                     fail("Error reading a line beginning with p.\n");
                 g = Graph(nvertices);
                 break;
+            }
             case 'e':
-                if (sscanf(line, "e %d %d", &v, &w)!=2)
+            {
+                unsigned int val = 1;
+                int ret_val = sscanf(line, "e %d %d %d", &v, &w, &val);
+                if ( ret_val !=2 && ret_val != 3) {
                     fail("Error reading a line beginning with e.\n");
-                add_edge(g, v-1, w-1, directed);
+                }
+                add_edge(g, v-1, w-1, directed, val);
                 edges_read++;
                 break;
+            }
             case 'n':
                 if (sscanf(line, "n %d %d", &v, &label)!=2)
                     fail("Error reading a line beginning with n.\n");
