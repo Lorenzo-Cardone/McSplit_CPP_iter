@@ -212,6 +212,42 @@ void Graph::printGraphMtx () {
     std::cout << "}" << std::endl;
 }
 
+void Graph::get_neighboring_nodes(std::unordered_set<size_t> &node_set, size_t node_id, size_t distance)
+{
+    for (auto adj_node : adjset[node_id]) {
+        node_set.insert(adj_node.first);
+        if (distance > 0) {
+            get_neighboring_nodes(node_set, node_id, distance - 1);
+        }
+    }
+	return;
+}
+
+std::unordered_map<long int, size_t> Graph::get_neighboring_labels(size_t node_id, size_t distance)
+{
+    std::unordered_map<long int, size_t> neighbouring_labels;
+    if (distance > 0) {
+        std::unordered_set<size_t> neighbouring_forward_nodes, neighbouring_backward_nodes;
+        for (std::pair<size_t, unsigned int> neighbor : adjset[node_id]) {
+            if (neighbor.second & 0xFFFFu) {
+                get_neighboring_nodes(neighbouring_forward_nodes, node_id, distance - 1);
+            }
+            if (neighbor.second & 0xFFFF0000u) {
+                get_neighboring_nodes(neighbouring_backward_nodes, node_id, distance - 1);
+            }
+        }
+        neighbouring_forward_nodes.erase(node_id);
+        neighbouring_backward_nodes.erase(node_id);
+        for (size_t node : neighbouring_forward_nodes) {
+            neighbouring_labels[label[node]] ++;
+        }
+        for (size_t node : neighbouring_backward_nodes) {
+            neighbouring_labels[-label[node]] ++;
+        }
+    }
+	return neighbouring_labels;
+}
+
 struct Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> mat) {
     struct Graph g(0);
     g.adjset = mat;
