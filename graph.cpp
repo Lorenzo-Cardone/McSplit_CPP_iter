@@ -248,6 +248,13 @@ std::unordered_map<long int, size_t> Graph::get_neighboring_labels(size_t node_i
 	return neighbouring_labels;
 }
 
+void Graph::initialize_neighboring_labels(size_t distance)
+{
+    for (size_t node_id = 0; node_id < n; node_id++) {
+        neighboring_labels[node_id] = get_neighboring_labels(node_id, distance);
+    }
+}
+
 struct Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> mat) {
     struct Graph g(0);
     g.adjset = mat;

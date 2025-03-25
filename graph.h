@@ -12,8 +12,10 @@ struct Graph {
     Graph(unsigned int n);
     void printGraphMtx();
 
+    std::vector<std::unordered_map<long int, size_t>> neighboring_labels; // map<label, amount>
     void get_neighboring_nodes (std::unordered_set<size_t> &node_set, size_t node_id, size_t distance); // returns a set<node_id>
     std::unordered_map<long int, size_t> get_neighboring_labels (size_t node_id, size_t distance); // returns a map<label, amount>
+    void initialize_neighboring_labels (size_t distance); // initializes the neighboring_labels vector with all the maps
 };
 
 Graph induced_subgraph(struct Graph& g, std::vector<int> vv);
