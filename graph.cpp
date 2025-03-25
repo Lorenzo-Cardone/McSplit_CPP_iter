@@ -239,9 +239,15 @@ std::unordered_map<long int, size_t> Graph::get_neighboring_labels(size_t node_i
         neighbouring_forward_nodes.erase(node_id);
         neighbouring_backward_nodes.erase(node_id);
         for (size_t node : neighbouring_forward_nodes) {
+            if (!neighbouring_labels.contains(label[node])) {
+                neighbouring_labels[label[node]] = 0;
+            }
             neighbouring_labels[label[node]] ++;
         }
         for (size_t node : neighbouring_backward_nodes) {
+            if (!neighbouring_labels.contains(label[node])) {
+                neighbouring_labels[label[node]] = 0;
+            }
             neighbouring_labels[-label[node]] ++;
         }
     }
