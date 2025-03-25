@@ -16,16 +16,23 @@ static void fail(std::string msg) {
 Graph::Graph(unsigned int n) {
     this->n = n;
     label = std::vector<unsigned int>(n, 0u);
-    adjmat = {n, std::vector<unsigned int>(n, false)};
+    adjset = {n, std::unordered_map<size_t, unsigned int>()};
 }
 
 Graph induced_subgraph(struct Graph& g, std::vector<int> vv) {
     Graph subg(vv.size());
-    for (int i=0; i<subg.n; i++)
-        for (int j=0; j<subg.n; j++)
-            subg.adjmat[i][j] = g.adjmat[vv[i]][vv[j]];
+    for (size_t i=0; i<subg.n; i++) {
+        //for (int j=0; j<subg.n; j++) {
+        //    subg.adjmat[i][j] = g.adjmat[vv[i]][vv[j]];
+        //}
+        for (size_t j=0; j<subg.n; j++) {
+            if (g.adjset[vv[i]].contains(vv[j])) {
+                subg.adjset[i][j] = g.adjset[vv[i]][vv[j]];
+            }
+        }
+    }
 
-    for (int i=0; i<subg.n; i++)
+    for (size_t i=0; i<subg.n; i++)
         subg.label[i] = g.label[vv[i]];
     return subg;
 }
@@ -33,11 +40,11 @@ Graph induced_subgraph(struct Graph& g, std::vector<int> vv) {
 void add_edge(Graph& g, int v, int w, bool directed=false, unsigned int val=1) {
     if (v != w) {
         if (directed) {
-            g.adjmat[v][w] |= val;
-            g.adjmat[w][v] |= (val<<16);
+            g.adjset[v][w] |= val;
+            g.adjset[w][v] |= (val<<16);
         } else {
-            g.adjmat[v][w] = val;
-            g.adjmat[w][v] = val;
+            g.adjset[v][w] = val;
+            g.adjset[w][v] = val;
         }
     } else {
         // To indicate that a vertex has a loop, we set the most
@@ -181,19 +188,26 @@ struct Graph readGraph(char* filename, char format, bool directed, bool edge_lab
 
 void Graph::printGraphMtx () {
     std::cout << "{";
-    for (const auto &x : adjmat) {
+    for (size_t x = 0; x < n; x++) {
         std::cout << "{";
-        for (const auto &y : x) {
-            std::cout << y << ((&y != &x.back()) ? "," : "");
+        for (size_t y = 0; y < n; y++) {
+            std::cout << (adjset[x].contains(y) ? adjset[x].at(y) : 0) << ((y != n-1) ? "," : "");
         }
-        std::cout << "}" << ((&x != &adjmat.back()) ? "," : "");
+        std::cout << "}" << ((x != n-1) ? "," : "");
     }
+    //for (const auto &x : adjmat) {
+    //    std::cout << "{";
+    //    for (const auto &y : x) {
+    //        std::cout << y << ((&y != &x.back()) ? "," : "");
+    //    }
+    //    std::cout << "}" << ((&x != &adjmat.back()) ? "," : "");
+    //}
     std::cout << "}" << std::endl;
 }
 
-struct Graph graphFromMtx(std::vector<std::vector<unsigned int>> mat) {
+struct Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> mat) {
     struct Graph g(0);
-    g.adjmat = mat;
+    g.adjset = mat;
     g.n = mat.size();
     g.label.resize(g.n, 0u);
     return g;

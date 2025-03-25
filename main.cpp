@@ -373,7 +373,7 @@ struct HelpMe
 };
 
 bool check_sol(const Graph & g0, const Graph & g1 , const vector<VtxPair> & solution) {
-    return true;
+    //return true;
     vector<bool> used_left(g0.n, false);
     vector<bool> used_right(g1.n, false);
     for (unsigned int i=0; i<solution.size(); i++) {
@@ -386,8 +386,9 @@ bool check_sol(const Graph & g0, const Graph & g1 , const vector<VtxPair> & solu
             return false;
         for (unsigned int j=i+1; j<solution.size(); j++) {
             struct VtxPair p1 = solution[j];
-            if (g0.adjmat[p0.v][p1.v] != g1.adjmat[p0.w][p1.w])
+            if ( (g0.adjset[p0.v].contains(p1.v) ? g0.adjset[p0.v].at(p1.v) : 0) != (g1.adjset[p0.w].contains(p1.w) ? g1.adjset[p0.w].at(p1.w) : 0) ) {
                 return false;
+            }
         }
     }
     return true;
@@ -438,10 +439,10 @@ int select_bidomain(const vector<Bidomain>& domains, const vector<int> & left,
 }
 
 // Returns length of left half of array
-int partition(vector<int>& all_vv, int start, int len, const vector<unsigned int> & adjrow) {
+int partition(vector<int>& all_vv, int start, int len, const std::unordered_map<size_t, unsigned int> & adjrow) {
     int i=0;
     for (int j=0; j<len; j++) {
-        if (adjrow[all_vv[start+j]]) {
+        if (adjrow.contains(all_vv[start+j])) {
             std::swap(all_vv[start+i], all_vv[start+j]);
             i++;
         }
@@ -461,26 +462,26 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
         // After these two partitions, left_len and right_len are the lengths of the
         // arrays of vertices with edges from v or w (int the directed case, edges
         // either from or to v or w)
-        int left_len = partition(left, l, old_bd.left_len, g0.adjmat[v]);
-        int right_len = partition(right, r, old_bd.right_len, g1.adjmat[w]);
+        int left_len = partition(left, l, old_bd.left_len, g0.adjset[v]);
+        int right_len = partition(right, r, old_bd.right_len, g1.adjset[w]);
         int left_len_noedge = old_bd.left_len - left_len;
         int right_len_noedge = old_bd.right_len - right_len;
         if (left_len_noedge && right_len_noedge)
             new_d.push_back({l+left_len, r+right_len, left_len_noedge, right_len_noedge, old_bd.is_adjacent});
         if (multiway && left_len && right_len) {
-            auto& adjrow_v = g0.adjmat[v];
-            auto& adjrow_w = g1.adjmat[w];
+            auto& adjrow_v = g0.adjset[v];
+            auto& adjrow_w = g1.adjset[w];
             auto l_begin = std::begin(left) + l;
             auto r_begin = std::begin(right) + r;
             std::sort(l_begin, l_begin+left_len, [&](int a, int b)
-                    { return adjrow_v[a] < adjrow_v[b]; });
+                    { return (adjrow_v.contains(a) ? adjrow_v.at(a) : 0) < (adjrow_v.contains(b) ? adjrow_v.at(b) : 0); });
             std::sort(r_begin, r_begin+right_len, [&](int a, int b)
-                    { return adjrow_w[a] < adjrow_w[b]; });
+                    { return (adjrow_w.contains(a) ? adjrow_w.at(a) : 0) < (adjrow_w.contains(b) ? adjrow_w.at(b) : 0); });
             int l_top = l + left_len;
             int r_top = r + right_len;
             while (l<l_top && r<r_top) {
-                unsigned int left_label = adjrow_v[left[l]];
-                unsigned int right_label = adjrow_w[right[r]];
+                unsigned int left_label = (adjrow_v.contains(left[l]) ? adjrow_v.at(left[l]) : 0);
+                unsigned int right_label = (adjrow_w.contains(right[r]) ? adjrow_w.at(right[r]) : 0);
                 if (left_label < right_label) {
                     l++;
                 } else if (left_label > right_label) {
@@ -488,8 +489,8 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
                 } else {
                     int lmin = l;
                     int rmin = r;
-                    do { l++; } while (l<l_top && adjrow_v[left[l]]==left_label);
-                    do { r++; } while (r<r_top && adjrow_w[right[r]]==left_label);
+                    do { l++; } while (l<l_top && ((adjrow_v.contains(left[l]) ? adjrow_v.at(left[l]) : 0) == left_label));
+                    do { r++; } while (r<r_top && ((adjrow_w.contains(right[r]) ? adjrow_w.at(right[r]) : 0)==left_label));
                     new_d.push_back({lmin, rmin, l-lmin, r-rmin, true});
                 }
             }
@@ -591,7 +592,7 @@ void new_solve (const Graph & g0, const Graph & g1,
     int counter = 0;
     uint bound = 0;
 
-    Bidomain *bd;
+    //Bidomain *bd = nullptr;
     while (depth >= 0) {
         if ((depth % 2) == 0) {
             //print_solution(current_sol);
@@ -620,10 +621,10 @@ void new_solve (const Graph & g0, const Graph & g1,
                 current_sol.pop_back();
                 bidomains.pop_back();
                 bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
-                bd = &bidomains[depth/2][current_bidomain[depth/2]];
+                //bd = &bidomains[depth/2][current_bidomain[depth/2]];
                 continue;
             }
-            bd = &bidomains[depth/2][current_bidomain[depth/2]];
+            //bd = &bidomains[depth/2][current_bidomain[depth/2]];
             v = solve_first_graph(left, bidomains[depth/2][current_bidomain[depth/2]]);
             depth += 1;
         }
@@ -917,10 +918,10 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
         int start_l = left.size();
         int start_r = right.size();
 
-        for (int i=0; i<g0.n; i++)
+        for (size_t i=0; i<g0.n; i++)
             if (g0.label[i]==label)
                 left.push_back(i);
-        for (int i=0; i<g1.n; i++)
+        for (size_t i=0; i<g1.n; i++)
             if (g1.label[i]==label)
                 right.push_back(i);
 
@@ -934,7 +935,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
     unsigned long long global_nodes = 0;
 
     if (arguments.big_first) {
-        for (int k=0; k<g0.n; k++) {
+        for (size_t k=0; k<g0.n; k++) {
             unsigned int goal = g0.n - k;
             auto left_copy = left;
             auto right_copy = right;
@@ -982,11 +983,11 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
 
 vector<int> calculate_degrees(const Graph & g) {
     vector<int> degree(g.n, 0);
-    for (int v=0; v<g.n; v++) {
-        for (int w=0; w<g.n; w++) {
+    for (size_t v=0; v<g.n; v++) {
+        for (size_t w=0; w<g.n; w++) {
             unsigned int mask = 0xFFFFu;
-            if (g.adjmat[v][w] & mask) degree[v]++;
-            if (g.adjmat[v][w] & ~mask) degree[v]++;  // inward edge, in directed case
+            if (g.adjset[v].contains(w) & mask) degree[v]++;
+            if (g.adjset[v].contains(w) & ~mask) degree[v]++;  // inward edge, in directed case
         }
     }
     return degree;
@@ -1091,8 +1092,8 @@ struct timespec s, finish;
 
 
     cout << "Solution size " << solution.first.size() << std::endl;
-    for (int i=0; i<g0.n; i++)
-        for (unsigned int j=0; j<solution.first.size(); j++)
+    for (size_t i=0; i<g0.n; i++)
+        for (size_t j=0; j<solution.first.size(); j++)
             if (solution.first[j].v == i)
                 cout << "(" << solution.first[j].v << " -> " << solution.first[j].w << ") ";
     cout << std::endl;
