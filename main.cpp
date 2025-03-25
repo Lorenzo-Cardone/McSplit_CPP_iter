@@ -546,6 +546,26 @@ uint find_smallest_and_move_to_back (vector<int> &nodes, uint start, uint end, i
     return smallest;
 }
 
+uint compute_map_difference (const std::unordered_map<size_t, unsigned int> &map_v, const std::unordered_map<size_t, unsigned int> &map_w)
+{
+    uint diff = 0;
+    for (std::pair<size_t, unsigned int> label_v : map_v) {
+        if (map_w.contains(label_v.first)) {
+            diff += abs((long int) label_v.second - (long int) map_w.at(label_v.first));
+        }
+        else {
+            diff += label_v.second;
+        }
+    }
+    for (std::pair<size_t, unsigned int> label_w : map_w) {
+        if (!map_v.contains(label_w.first)) {
+            diff += label_w.second;
+        }
+        // NO else, already computed in the first for
+    }
+    return diff;
+}
+
 uint solve_first_graph (vector<int> &nodes, Bidomain &bd)
 {
     //println!("v: {} {}", bd.left_start, bd.left_len);
