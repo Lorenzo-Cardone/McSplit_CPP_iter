@@ -534,14 +534,14 @@ uint find_smallest_and_move_to_back (vector<int> &nodes, uint start, uint end, i
     uint smallest = UINT_MAX;
     uint idx_smallest = UINT_MAX;
     for (uint idx = start; idx < end; idx++) {
-        if (smallest > nodes[idx] && nodes[idx] > larger_that) {
-            smallest = nodes[idx];
+        if (smallest > (uint)nodes[idx] && nodes[idx] > larger_that) {
+            smallest = (uint)nodes[idx];
             idx_smallest = idx;
         }
     }
     if (idx_smallest != UINT_MAX) {
         nodes[idx_smallest] = nodes [end - 1];
-        nodes[end - 1] = smallest;
+        nodes[end - 1] = (int)smallest;
     }
     return smallest;
 }
@@ -1049,13 +1049,13 @@ struct timespec s, finish;
     // input graphs were complemented.
     vector<int> vv0(g0.n);
     std::iota(std::begin(vv0), std::end(vv0), 0);
-    bool g1_dense = sum(g1_deg) > g1.n*(g1.n-1);
+    bool g1_dense = (size_t)sum(g1_deg) > g1.n*(g1.n-1);
     std::stable_sort(std::begin(vv0), std::end(vv0), [&](int a, int b) {
         return g1_dense ? (g0_deg[a]<g0_deg[b]) : (g0_deg[a]>g0_deg[b]);
     });
     vector<int> vv1(g1.n);
     std::iota(std::begin(vv1), std::end(vv1), 0);
-    bool g0_dense = sum(g0_deg) > g0.n*(g0.n-1);
+    bool g0_dense = (size_t)sum(g0_deg) > g0.n*(g0.n-1);
     std::stable_sort(std::begin(vv1), std::end(vv1), [&](int a, int b) {
         return g0_dense ? (g1_deg[a]<g1_deg[b]) : (g1_deg[a]>g1_deg[b]);
     });
@@ -1094,7 +1094,7 @@ struct timespec s, finish;
     cout << "Solution size " << solution.first.size() << std::endl;
     for (size_t i=0; i<g0.n; i++)
         for (size_t j=0; j<solution.first.size(); j++)
-            if (solution.first[j].v == i)
+            if ((size_t)solution.first[j].v == i)
                 cout << "(" << solution.first[j].v << " -> " << solution.first[j].w << ") ";
     cout << std::endl;
 
