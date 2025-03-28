@@ -199,19 +199,27 @@ struct Bidomain {
 
 struct AtomicIncumbent{
     std::atomic<unsigned> value;
+    uint64_t pairing_tested = 0;
+    struct timespec s;
+    std::mutex incumbent_mutex;
 
     AtomicIncumbent()
     {
         value.store(0, std::memory_order_seq_cst);
     }
 
-    bool update(unsigned v)
+    bool update(unsigned v, uint64_t currently_tested_pairings)
     {
         while (true) {
             unsigned cur_v = value.load(std::memory_order_seq_cst);
             if (v > cur_v) {
+                std::unique_lock<std::mutex> guard(incumbent_mutex);
                 if (value.compare_exchange_strong(cur_v, v, std::memory_order_seq_cst))
+                {
+                    pairing_tested = currently_tested_pairings;
+                    clock_gettime(CLOCK_MONOTONIC, &s);
                     return true;
+                }
             }
             else
                 return false;
@@ -373,7 +381,6 @@ struct HelpMe
 };
 
 bool check_sol(const Graph & g0, const Graph & g1 , const vector<VtxPair> & solution) {
-    return true;
     vector<bool> used_left(g0.n, false);
     vector<bool> used_right(g1.n, false);
     for (unsigned int i=0; i<solution.size(); i++) {
@@ -571,6 +578,11 @@ void print_solution (vector<VtxPair> sol) {
 
 void new_solve (const Graph & g0, const Graph & g1,
         vector<VtxPair> & best_sol,
+        uint64_t & best_sol_nodes,
+        struct timespec & best_sol_time,
+        vector<VtxPair> & first_backtrack_sol,
+        uint64_t & first_backtrack_sol_nodes,
+        struct timespec & first_backtrack_sol_time,
         vector<Bidomain> & starting_bidomain,
         vector<int> & left, vector<int> & right) 
 {
@@ -588,7 +600,7 @@ void new_solve (const Graph & g0, const Graph & g1,
     int v = INT_MAX;
     int w = -1;
 
-    int counter = 0;
+    uint64_t counter = 0;
     uint bound = 0;
 
     Bidomain *bd;
@@ -601,6 +613,11 @@ void new_solve (const Graph & g0, const Graph & g1,
             
             if (bound <= best_sol.size()) {
                 depth -= 1;
+                if (first_backtrack_sol.size() == 0) {
+                    first_backtrack_sol = current_sol;
+                    first_backtrack_sol_nodes = counter;
+                    first_backtrack_sol_time = best_sol_time;
+                }
                 if (depth < 0) {
                     continue;
                 }
@@ -615,6 +632,11 @@ void new_solve (const Graph & g0, const Graph & g1,
             current_bidomain[depth/2] = select_bidomain(bidomains[depth/2], left, current_sol.size());
             if (current_bidomain[depth/2] == UINT_MAX) {
                 depth -= 1;
+                if (first_backtrack_sol.size() == 0) {
+                    first_backtrack_sol = current_sol;
+                    first_backtrack_sol_nodes = counter;
+                    first_backtrack_sol_time = best_sol_time;
+                }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
                 current_sol.pop_back();
@@ -635,6 +657,8 @@ void new_solve (const Graph & g0, const Graph & g1,
                 if (current_sol.size() > best_sol.size()) {
                     //print_sol(&current_sol);
                     best_sol = current_sol;
+                    best_sol_nodes = counter;
+                    clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
                 }
 
                 //{
@@ -651,6 +675,11 @@ void new_solve (const Graph & g0, const Graph & g1,
             else {
                 bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
                 depth -= 1;
+                if (first_backtrack_sol.size() == 0) {
+                    first_backtrack_sol = current_sol;
+                    first_backtrack_sol_nodes = counter;
+                    first_backtrack_sol_time = best_sol_time;
+                }
 
                 if (bidomains[depth/2][current_bidomain[depth/2]].left_len == 0) {
                     remove_bidomain(bidomains[depth/2], current_bidomain[depth/2]);
@@ -675,7 +704,7 @@ void solve_nopar(const unsigned depth, const Graph & g0, const Graph & g1,
 
     if (my_incumbent.size() < current.size()) {
         my_incumbent = current;
-        global_incumbent.update(current.size());
+        global_incumbent.update(current.size(), my_thread_nodes);
     }
 
     unsigned int bound = current.size() + calc_bound(domains);
@@ -739,7 +768,7 @@ void solve(const unsigned depth, const Graph & g0, const Graph & g1,
     my_thread_nodes++;
     if (per_thread_incumbents.find(std::this_thread::get_id())->second.size() < current.size()) {
         per_thread_incumbents.find(std::this_thread::get_id())->second = current;
-        global_incumbent.update(current.size());
+        global_incumbent.update(current.size(), my_thread_nodes);
     }
 
     unsigned int bound = current.size() + calc_bound(domains);
@@ -893,7 +922,13 @@ void solve(const unsigned depth, const Graph & g0, const Graph & g1,
         main_function(my_thread_nodes);
 }
 
-std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph & g1) {
+struct SolInfo {
+    vector<VtxPair> sol;
+    uint64_t nodes;
+    struct timespec time;
+};
+
+std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph & g1, SolInfo &best_sol_info, SolInfo &first_backtrack_sol_info) {
     vector<int> left;  // the buffer of vertex indices for the left partitions
     vector<int> right;  // the buffer of vertex indices for the right partitions
     //std::cout << "mcs - " << std::this_thread::get_id() << std::endl;
@@ -946,15 +981,16 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
             HelpMe help_me(arguments.threads - 1);
             for (auto & t : help_me.threads)
                 per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
-            new_solve(g0, g1, per_thread_incumbents.at(std::this_thread::get_id()), domains_copy, left_copy, right_copy);
+            new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains_copy, left_copy, right_copy);
             //solve(0, g0, g1, global_incumbent, per_thread_incumbents, current, domains_copy, left_copy, right_copy, goal, position, help_me, global_nodes);
             help_me.kill_workers();
             for (auto & n : help_me.nodes) {
                 global_nodes += n;
             }
-            for (auto & i : per_thread_incumbents)
-                if (i.second.size() > incumbent.size())
-                    incumbent = i.second;
+            //for (auto & i : per_thread_incumbents)
+            //    if (i.second.size() > incumbent.size())
+            //        incumbent = i.second;
+            incumbent = best_sol_info.sol;
             if (global_incumbent.value == goal || abort_due_to_timeout) break;
             if (!arguments.quiet) cout << "Upper bound: " << goal-1 << std::endl;
         }
@@ -967,14 +1003,15 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
         HelpMe help_me(arguments.threads - 1);
         for (auto & t : help_me.threads)
             per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
-        new_solve(g0, g1, per_thread_incumbents.at(std::this_thread::get_id()), domains, left, right);
+        new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains, left, right);
         //solve(0, g0, g1, global_incumbent, per_thread_incumbents, current, domains, left, right, 1, position, help_me, global_nodes);
         help_me.kill_workers();
         for (auto & n : help_me.nodes)
             global_nodes += n;
-        for (auto & i : per_thread_incumbents)
-            if (i.second.size() > incumbent.size())
-                incumbent = i.second;
+        //for (auto & i : per_thread_incumbents)
+        //    if (i.second.size() > incumbent.size())
+        //        incumbent = i.second;
+        incumbent = best_sol_info.sol;
     }
 
     return { incumbent, global_nodes };
@@ -1062,7 +1099,8 @@ struct timespec s, finish;
     struct Graph g0_sorted = induced_subgraph(g0, vv0);
     struct Graph g1_sorted = induced_subgraph(g1, vv1);
 
-    std::pair<vector<VtxPair>, unsigned long long> solution = mcs(g0_sorted, g1_sorted);
+    SolInfo best_sol_info, first_backtrack_sol_info;
+    std::pair<vector<VtxPair>, unsigned long long> solution = mcs(g0_sorted, g1_sorted, best_sol_info, first_backtrack_sol_info);
 
     // Convert to indices from original, unsorted graphs
     for (auto& vtx_pair : solution.first) {
@@ -1088,8 +1126,6 @@ struct timespec s, finish;
     if (!check_sol(g0, g1, solution.first))
         fail("*** Error: Invalid solution\n");
 
-
-
     cout << "Solution size " << solution.first.size() << std::endl;
     for (int i=0; i<g0.n; i++)
         for (unsigned int j=0; j<solution.first.size(); j++)
@@ -1104,6 +1140,9 @@ struct timespec s, finish;
 
 	fprintf(stdout, ">>> %ld - %015.010f\n", solution.first.size(), (double)(time_elapsed));
     //cout << ">>> " << solution.first.size() << " - " << (double)(end-begin)/CLOCKS_PER_SEC << endl;
+
+    cout << "### " << best_sol_info.sol.size() << " " << best_sol_info.nodes << " " << (double)((best_sol_info.time.tv_sec - s.tv_sec) + (best_sol_info.time.tv_nsec - s.tv_nsec) / 1000000000.0) << endl;
+    cout << "--- " << first_backtrack_sol_info.sol.size() << " " << first_backtrack_sol_info.nodes << " " << (double)((first_backtrack_sol_info.time.tv_sec - s.tv_sec) + (first_backtrack_sol_info.time.tv_nsec - s.tv_nsec) / 1000000000.0) << endl;
 
     if (aborted)
         cout << "TIMEOUT" << endl;
