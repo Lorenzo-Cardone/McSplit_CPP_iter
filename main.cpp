@@ -120,13 +120,13 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             arguments.verbose = true;
             break;
         case 'c':
-            if (arguments.directed)
-                fail("The connected and directed options can't be used together.");
+            //if (arguments.directed)
+            //    fail("The connected and directed options can't be used together.");
             arguments.connected = true;
             break;
         case 'i':
-            if (arguments.connected)
-                fail("The connected and directed options can't be used together.");
+            //if (arguments.connected)
+            //    fail("The connected and directed options can't be used together.");
             arguments.directed = true;
             break;
         case 'a':
