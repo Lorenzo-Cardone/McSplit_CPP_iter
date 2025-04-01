@@ -611,6 +611,9 @@ void new_solve (const Graph & g0, const Graph & g1,
     Bidomain *bd;
     while (depth >= 0) {
         if ((depth % 2) == 0) {
+            if (abort_due_to_timeout) {
+                return;
+            }
             //print_solution(current_sol);
             counter += 1;
             //show(&current_sol, &bidomains[(depth/2) as usize], &left, &right);
