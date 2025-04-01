@@ -591,7 +591,7 @@ void new_solve (const Graph & g0, const Graph & g1,
         struct timespec & first_backtrack_sol_time,
         vector<Bidomain> & starting_bidomain,
         vector<int> & left, vector<int> & right,
-        unsigned long long global_nodes) 
+        unsigned long long &global_nodes) 
 {
     uint max_size = std::max(g0.n, g1.n) * 2;
     int depth = 0;
