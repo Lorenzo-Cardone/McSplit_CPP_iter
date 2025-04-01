@@ -590,7 +590,8 @@ void new_solve (const Graph & g0, const Graph & g1,
         uint64_t & first_backtrack_sol_nodes,
         struct timespec & first_backtrack_sol_time,
         vector<Bidomain> & starting_bidomain,
-        vector<int> & left, vector<int> & right) 
+        vector<int> & left, vector<int> & right,
+        unsigned long long global_nodes) 
 {
     uint max_size = std::max(g0.n, g1.n) * 2;
     int depth = 0;
@@ -606,17 +607,16 @@ void new_solve (const Graph & g0, const Graph & g1,
     int v = INT_MAX;
     int w = -1;
 
-    uint64_t counter = 0;
     uint bound = 0;
 
     //Bidomain *bd = nullptr;
     while (depth >= 0) {
         if ((depth % 2) == 0) {
             if (abort_due_to_timeout) {
-                return;
+                break;
             }
             //print_solution(current_sol);
-            counter += 1;
+            global_nodes += 1;
             //show(&current_sol, &bidomains[(depth/2) as usize], &left, &right);
             bound = current_sol.size() + calc_bound(bidomains[depth/2]);
             
@@ -624,7 +624,7 @@ void new_solve (const Graph & g0, const Graph & g1,
                 depth -= 1;
                 if (first_backtrack_sol.size() == 0) {
                     first_backtrack_sol = current_sol;
-                    first_backtrack_sol_nodes = counter;
+                    first_backtrack_sol_nodes = global_nodes;
                     first_backtrack_sol_time = best_sol_time;
                 }
                 if (depth < 0) {
@@ -643,7 +643,7 @@ void new_solve (const Graph & g0, const Graph & g1,
                 depth -= 1;
                 if (first_backtrack_sol.size() == 0) {
                     first_backtrack_sol = current_sol;
-                    first_backtrack_sol_nodes = counter;
+                    first_backtrack_sol_nodes = global_nodes;
                     first_backtrack_sol_time = best_sol_time;
                 }
                 v = current_sol.back().v;
@@ -666,7 +666,7 @@ void new_solve (const Graph & g0, const Graph & g1,
                 if (current_sol.size() > best_sol.size()) {
                     //print_sol(&current_sol);
                     best_sol = current_sol;
-                    best_sol_nodes = counter;
+                    best_sol_nodes = global_nodes;
                     clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
                 }
 
@@ -686,7 +686,7 @@ void new_solve (const Graph & g0, const Graph & g1,
                 depth -= 1;
                 if (first_backtrack_sol.size() == 0) {
                     first_backtrack_sol = current_sol;
-                    first_backtrack_sol_nodes = counter;
+                    first_backtrack_sol_nodes = global_nodes;
                     first_backtrack_sol_time = best_sol_time;
                 }
 
@@ -696,7 +696,7 @@ void new_solve (const Graph & g0, const Graph & g1,
             }
         }
     }
-    cout << "counter: " << counter << endl;
+    cout << "counter: " << global_nodes << endl;
 }
 
 void solve_nopar(const unsigned depth, const Graph & g0, const Graph & g1,
@@ -990,7 +990,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
             HelpMe help_me(arguments.threads - 1);
             for (auto & t : help_me.threads)
                 per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
-            new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains_copy, left_copy, right_copy);
+            new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains_copy, left_copy, right_copy, global_nodes);
             //solve(0, g0, g1, global_incumbent, per_thread_incumbents, current, domains_copy, left_copy, right_copy, goal, position, help_me, global_nodes);
             help_me.kill_workers();
             for (auto & n : help_me.nodes) {
@@ -1012,7 +1012,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
         HelpMe help_me(arguments.threads - 1);
         for (auto & t : help_me.threads)
             per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
-        new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains, left, right);
+        new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains, left, right, global_nodes);
         //solve(0, g0, g1, global_incumbent, per_thread_incumbents, current, domains, left, right, 1, position, help_me, global_nodes);
         help_me.kill_workers();
         for (auto & n : help_me.nodes)
