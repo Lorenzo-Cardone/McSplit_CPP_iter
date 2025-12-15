@@ -699,6 +699,108 @@ void new_solve (const Graph & g0, const Graph & g1,
     cout << "counter: " << global_nodes << endl;
 }
 
+void new_solve_par (const Graph & g0, const Graph & g1,
+        vector<VtxPair> & best_sol,
+        uint64_t & best_sol_nodes,
+        struct timespec & best_sol_time,
+        vector<VtxPair> & first_backtrack_sol,
+        uint64_t & first_backtrack_sol_nodes,
+        struct timespec & first_backtrack_sol_time,
+        vector<Bidomain> & starting_bidomain,
+        vector<int> & left, vector<int> & right,
+        unsigned long long &global_nodes,
+        int starting_depth,
+        vector<uint>& current_bidomain,
+        vector<VtxPair>& current_sol,
+        vector<vector<Bidomain>>& bidomains
+    ) 
+{
+    int depth = starting_depth;
+
+    bidomains.emplace_back(starting_bidomain);
+
+    int v = INT_MAX;
+    int w = -1;
+
+    uint bound = 0;
+
+    while (depth >= starting_depth) {
+        if ((depth % 2) == 0) {
+            if (abort_due_to_timeout) {
+                break;
+            }
+            global_nodes += 1;
+            bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+            
+            if (bound <= best_sol.size()) {
+                depth -= 1;
+                if (first_backtrack_sol.size() == 0) {
+                    first_backtrack_sol = current_sol;
+                    first_backtrack_sol_nodes = global_nodes;
+                    first_backtrack_sol_time = best_sol_time;
+                }
+                if (depth < 0) {
+                    continue;
+                }
+                v = current_sol.back().v;
+                w = current_sol.back().w;
+                current_sol.pop_back();
+                bidomains.pop_back();
+                bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
+                continue;
+            }
+            w = -1;
+            current_bidomain[depth/2] = select_bidomain(bidomains[depth/2], left, current_sol.size());
+            if (current_bidomain[depth/2] == UINT_MAX) {
+                depth -= 1;
+                if (first_backtrack_sol.size() == 0) {
+                    first_backtrack_sol = current_sol;
+                    first_backtrack_sol_nodes = global_nodes;
+                    first_backtrack_sol_time = best_sol_time;
+                }
+                v = current_sol.back().v;
+                w = current_sol.back().w;
+                current_sol.pop_back();
+                bidomains.pop_back();
+                bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
+                continue;
+            }
+            v = solve_first_graph(left, bidomains[depth/2][current_bidomain[depth/2]]);
+            depth += 1;
+        }
+        else {
+            w = solve_second_graph(right, bidomains[depth/2][current_bidomain[depth/2]], w);
+            if (w != -1) { 
+                current_sol.emplace_back(VtxPair(v, w));
+
+                if (current_sol.size() > best_sol.size()) {
+                    best_sol = current_sol;
+                    best_sol_nodes = global_nodes;
+                    clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
+                }
+                
+                bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
+
+                depth += 1;
+            }
+            else {
+                bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
+                depth -= 1;
+                if (first_backtrack_sol.size() == 0) {
+                    first_backtrack_sol = current_sol;
+                    first_backtrack_sol_nodes = global_nodes;
+                    first_backtrack_sol_time = best_sol_time;
+                }
+
+                if (bidomains[depth/2][current_bidomain[depth/2]].left_len == 0) {
+                    remove_bidomain(bidomains[depth/2], current_bidomain[depth/2]);
+                }
+            }
+        }
+    }
+    cout << "counter: " << global_nodes << endl;
+}
+
 void solve_nopar(const unsigned depth, const Graph & g0, const Graph & g1,
         AtomicIncumbent & global_incumbent,
         vector<VtxPair> & my_incumbent,
