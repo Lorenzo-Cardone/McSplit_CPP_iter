@@ -83,6 +83,7 @@ static struct {
 } arguments;
 
 static std::atomic<bool> abort_due_to_timeout;
+std::atomic<size_t> global_position {0};
 
 void set_default_arguments() {
     arguments.quiet = false;
@@ -450,6 +451,38 @@ int select_bidomain(const vector<Bidomain>& domains, const vector<int> & left,
     return best;
 }
 
+bool select_bidomain_no_idx(vector<Bidomain>& domains, const vector<int> & left,
+        int current_matching_size){
+    // Select the bidomain with the smallest max(leftsize, rightsize), breaking
+    // ties on the smallest vertex index in the left set
+    int min_size = INT_MAX;
+    int min_tie_breaker = INT_MAX;
+    int best = -1;
+    for (unsigned int i=0; i<domains.size(); i++) {
+        const Bidomain &bd = domains[i];
+        if (arguments.connected && current_matching_size>0 && !bd.is_adjacent) continue;
+        int len = arguments.heuristic == min_max ?
+                std::max(bd.left_len, bd.right_len) :
+                bd.left_len * bd.right_len;
+        if (len < min_size) {
+            min_size = len;
+            min_tie_breaker = find_min_value(left, bd.l, bd.left_len);
+            best = i;
+        } else if (len == min_size) {
+            int tie_breaker = find_min_value(left, bd.l, bd.left_len);
+            if (tie_breaker < min_tie_breaker) {
+                min_tie_breaker = tie_breaker;
+                best = i;
+            }
+        }
+    }
+    if (best == -1) {
+        return false;
+    }
+    std::swap(domains[best], domains[domains.size() - 1]);
+    return true;
+}
+
 // Returns length of left half of array
 int partition(vector<int>& all_vv, int start, int len, const std::unordered_map<size_t, unsigned int> & adjrow) {
     int i=0;
@@ -700,6 +733,8 @@ void new_solve (const Graph & g0, const Graph & g1,
 }
 
 void new_solve_par (const Graph & g0, const Graph & g1,
+        AtomicIncumbent & global_incumbent,
+        PerThreadIncumbents & per_thread_incumbents,
         vector<VtxPair> & best_sol,
         uint64_t & best_sol_nodes,
         struct timespec & best_sol_time,
@@ -712,7 +747,8 @@ void new_solve_par (const Graph & g0, const Graph & g1,
         int starting_depth,
         vector<uint>& current_bidomain,
         vector<VtxPair>& current_sol,
-        vector<vector<Bidomain>>& bidomains
+        vector<vector<Bidomain>>& bidomains,
+        HelpMe &help_me
     ) 
 {
     int depth = starting_depth;
@@ -746,12 +782,12 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 w = current_sol.back().w;
                 current_sol.pop_back();
                 bidomains.pop_back();
-                bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
+                bidomains[depth/2].back().right_len += 1;
                 continue;
             }
             w = -1;
-            current_bidomain[depth/2] = select_bidomain(bidomains[depth/2], left, current_sol.size());
-            if (current_bidomain[depth/2] == UINT_MAX) {
+            bool found = select_bidomain_no_idx(bidomains[depth/2], left, current_sol.size());
+            if (!found) {
                 depth -= 1;
                 if (first_backtrack_sol.size() == 0) {
                     first_backtrack_sol = current_sol;
@@ -762,39 +798,91 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 w = current_sol.back().w;
                 current_sol.pop_back();
                 bidomains.pop_back();
-                bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
+                bidomains[depth/2].back().right_len += 1;
                 continue;
             }
-            v = solve_first_graph(left, bidomains[depth/2][current_bidomain[depth/2]]);
+            v = solve_first_graph(left, bidomains[depth/2].back());
             depth += 1;
         }
         else {
-            w = solve_second_graph(right, bidomains[depth/2][current_bidomain[depth/2]], w);
-            if (w != -1) { 
-                current_sol.emplace_back(VtxPair(v, w));
+            // decide if there are too many "waiting tasks" in help_me
+            // if so, just proceed sequentially
+            // otherwise, offload the work to help_me (might be interesting to share only if the w has a different "best match")
+            if (help_me.tasks.size() >= 2*arguments.threads || bidomains[depth/2].back().right_len <= 1) {
+                w = solve_second_graph(right, bidomains[depth/2].back(), w);
+                if (w != -1) { 
+                    current_sol.emplace_back(VtxPair(v, w));
 
-                if (current_sol.size() > best_sol.size()) {
-                    best_sol = current_sol;
-                    best_sol_nodes = global_nodes;
-                    clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
+                    if (current_sol.size() > best_sol.size()) {
+                        best_sol = current_sol;
+                        best_sol_nodes = global_nodes;
+                        clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
+                    }
+                    
+                    bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
+
+                    depth += 1;
                 }
-                
-                bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
+                else {
+                    bidomains[depth/2].back().right_len += 1;
+                    depth -= 1;
+                    if (first_backtrack_sol.size() == 0) {
+                        first_backtrack_sol = current_sol;
+                        first_backtrack_sol_nodes = global_nodes;
+                        first_backtrack_sol_time = best_sol_time;
+                    }
 
-                depth += 1;
+                    if (bidomains[depth/2].back().left_len == 0) {
+                        // remove bidomain
+                        bidomains[depth/2].pop_back();
+                    }
+                }
             }
-            else {
-                bidomains[depth/2][current_bidomain[depth/2]].right_len += 1;
-                depth -= 1;
-                if (first_backtrack_sol.size() == 0) {
-                    first_backtrack_sol = current_sol;
-                    first_backtrack_sol_nodes = global_nodes;
-                    first_backtrack_sol_time = best_sol_time;
-                }
+            else 
+            {
+                std::atomic<int> shared_i{ 0 };
+                const int i_end = bidomains[depth/2].back().right_len + 2; /* including the null */
 
-                if (bidomains[depth/2][current_bidomain[depth/2]].left_len == 0) {
-                    remove_bidomain(bidomains[depth/2], current_bidomain[depth/2]);
-                }
+                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<std::vector<Bidomain>>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_incumbents, &depth,
+                                    i_end, &help_me] (unsigned long long & help_thread_nodes, std::vector<VtxPair> help_cur_sol, std::vector<std::vector<Bidomain>> help_bidomains, std::vector<int> help_left, std::vector<int> help_right) {
+                    
+                    int which_i_should_i_run_next = shared_i++;
+
+                    if (which_i_should_i_run_next >= i_end)
+                        return; /* don't waste time recomputing */
+
+                    int help_v = help_left[help_bidomains[depth/2].back().l + help_bidomains[depth/2].back().left_len];
+                    int help_w = -1;
+
+                    help_w = solve_second_graph(help_right, help_bidomains[depth/2].back(), help_w);
+                    if (help_w != -1) { 
+                        help_current_sol.emplace_back(VtxPair(help_v, help_w));
+
+                        if (current_sol.size() > best_sol.size()) {
+                            best_sol = current_sol;
+                            best_sol_nodes = global_nodes;
+                            clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
+                        }
+                        
+                        help_bidomains.emplace_back(filter_domains(help_bidomains[depth/2], help_left, help_right, g0, g1, help_v, help_w, arguments.directed || arguments.edge_labelled));
+
+                        depth += 1;
+                    }
+                    else {
+                        help_bidomains[depth/2].back().right_len += 1;
+                        depth -= 1;
+                        if (first_backtrack_sol.size() == 0) {
+                            first_backtrack_sol = current_sol;
+                            first_backtrack_sol_nodes = global_nodes;
+                            first_backtrack_sol_time = best_sol_time;
+                        }
+
+                        if (help_bidomains[depth/2].back().left_len == 0) {
+                            // remove bidomain
+                            help_bidomains[depth/2].pop_back();
+                        }
+                    }
+                };
             }
         }
     }
