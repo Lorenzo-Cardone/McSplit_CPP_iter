@@ -762,6 +762,13 @@ void new_solve_par (const Graph & g0, const Graph & g1,
 
     while (depth >= starting_depth) {
         if ((depth % 2) == 0) {
+
+            if (current_sol.size() > best_sol.size()) {
+                best_sol = current_sol;
+                best_sol_nodes = global_nodes;
+                clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
+            }
+            
             if (abort_due_to_timeout) {
                 break;
             }
@@ -812,12 +819,6 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 w = solve_second_graph(right, bidomains[depth/2].back(), w);
                 if (w != -1) { 
                     current_sol.emplace_back(VtxPair(v, w));
-
-                    if (current_sol.size() > best_sol.size()) {
-                        best_sol = current_sol;
-                        best_sol_nodes = global_nodes;
-                        clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
-                    }
                     
                     bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
 
@@ -843,7 +844,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 std::atomic<int> shared_i{ 0 };
                 const int i_end = bidomains[depth/2].back().right_len + 2; /* including the null */
 
-                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<std::vector<Bidomain>>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_incumbents, &depth,
+                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<std::vector<Bidomain>>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_incumbents, depth,
                                     i_end, &help_me] (unsigned long long & help_thread_nodes, std::vector<VtxPair> help_cur_sol, std::vector<std::vector<Bidomain>> help_bidomains, std::vector<int> help_left, std::vector<int> help_right) {
                     
                     int which_i_should_i_run_next = shared_i++;
@@ -854,34 +855,39 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                     int help_v = help_left[help_bidomains[depth/2].back().l + help_bidomains[depth/2].back().left_len];
                     int help_w = -1;
 
-                    help_w = solve_second_graph(help_right, help_bidomains[depth/2].back(), help_w);
-                    if (help_w != -1) { 
-                        help_current_sol.emplace_back(VtxPair(help_v, help_w));
+                    for (int i = 0; (i < i_end) && (which_i_should_i_run_next < i_end); i++) {
 
-                        if (current_sol.size() > best_sol.size()) {
-                            best_sol = current_sol;
-                            best_sol_nodes = global_nodes;
-                            clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
+                        help_w = solve_second_graph(help_right, help_bidomains[depth/2].back(), help_w);
+
+                        if (i != which_i_should_i_run_next) {
+                            continue;
                         }
-                        
-                        help_bidomains.emplace_back(filter_domains(help_bidomains[depth/2], help_left, help_right, g0, g1, help_v, help_w, arguments.directed || arguments.edge_labelled));
 
-                        depth += 1;
+                        if (help_w != -1) { 
+                            help_cur_sol.emplace_back(VtxPair(help_v, help_w));
+                            
+                            help_bidomains.emplace_back(filter_domains(help_bidomains[depth/2], help_left, help_right, g0, g1, help_v, help_w, arguments.directed || arguments.edge_labelled));
+
+                            int help_depth = depth + 1;
+                        }
+                        else {
+                            help_bidomains[depth/2].back().right_len += 1;
+                            depth -= 1;
+                            if (first_backtrack_sol.size() == 0) {
+                                first_backtrack_sol = current_sol;
+                                first_backtrack_sol_nodes = global_nodes;
+                                first_backtrack_sol_time = best_sol_time;
+                            }
+
+                            if (help_bidomains[depth/2].back().left_len == 0) {
+                                // remove bidomain
+                                help_bidomains[depth/2].pop_back();
+                            }
+                        }
+
+                        which_i_should_i_run_next = shared_i++;
                     }
-                    else {
-                        help_bidomains[depth/2].back().right_len += 1;
-                        depth -= 1;
-                        if (first_backtrack_sol.size() == 0) {
-                            first_backtrack_sol = current_sol;
-                            first_backtrack_sol_nodes = global_nodes;
-                            first_backtrack_sol_time = best_sol_time;
-                        }
-
-                        if (help_bidomains[depth/2].back().left_len == 0) {
-                            // remove bidomain
-                            help_bidomains[depth/2].pop_back();
-                        }
-                    }
+                    
                 };
             }
         }
