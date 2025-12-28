@@ -741,19 +741,15 @@ void new_solve_par (const Graph & g0, const Graph & g1,
         vector<VtxPair> & first_backtrack_sol,
         uint64_t & first_backtrack_sol_nodes,
         struct timespec & first_backtrack_sol_time,
-        vector<Bidomain> & starting_bidomain,
         vector<int> & left, vector<int> & right,
         unsigned long long &global_nodes,
         int starting_depth,
-        vector<uint>& current_bidomain,
         vector<VtxPair>& current_sol,
         vector<vector<Bidomain>>& bidomains,
         HelpMe &help_me
     ) 
 {
     int depth = starting_depth;
-
-    bidomains.emplace_back(starting_bidomain);
 
     int v = INT_MAX;
     int w = -1;
@@ -869,20 +865,20 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                             help_bidomains.emplace_back(filter_domains(help_bidomains[depth/2], help_left, help_right, g0, g1, help_v, help_w, arguments.directed || arguments.edge_labelled));
 
                             int help_depth = depth + 1;
+                            // recursive call
+                            new_solve_par(g0, g1, global_incumbent, per_thread_incumbents,
+                                best_sol, best_sol_nodes, best_sol_time,
+                                first_backtrack_sol, first_backtrack_sol_nodes, first_backtrack_sol_time,
+                                help_left, help_right,
+                                help_thread_nodes,
+                                help_depth,
+                                help_cur_sol,
+                                help_bidomains,
+                                help_me
+                            );
                         }
                         else {
-                            help_bidomains[depth/2].back().right_len += 1;
-                            depth -= 1;
-                            if (first_backtrack_sol.size() == 0) {
-                                first_backtrack_sol = current_sol;
-                                first_backtrack_sol_nodes = global_nodes;
-                                first_backtrack_sol_time = best_sol_time;
-                            }
-
-                            if (help_bidomains[depth/2].back().left_len == 0) {
-                                // remove bidomain
-                                help_bidomains[depth/2].pop_back();
-                            }
+                            return;
                         }
 
                         which_i_should_i_run_next = shared_i++;
