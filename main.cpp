@@ -745,7 +745,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
         AtomicIncumbent & global_incumbent,
         PerThreadData & per_thread_data,
         vector<int> & left, vector<int> & right,
-        unsigned long long &global_nodes,
+        std::atomic<unsigned long long> &global_nodes,
         int starting_depth,
         vector<VtxPair>& current_sol,
         vector<vector<Bidomain>>& bidomains,
@@ -845,7 +845,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 const int i_end = bidomains[depth/2].back().right_len + 2; /* including the null */
 
                 std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
-                                    i_end, &help_me, &bidomains] (unsigned long long & help_thread_nodes, std::vector<VtxPair> help_cur_sol, std::vector<int> help_left, std::vector<int> help_right) {
+                                    i_end, &help_me, &bidomains, &global_nodes] (std::vector<VtxPair> help_cur_sol, std::vector<int> help_left, std::vector<int> help_right) {
                     
                     int which_i_should_i_run_next = shared_i++;
 
@@ -875,7 +875,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
 
                             int help_depth = depth + 1;
                             // recursive call
-                            new_solve_par(g0, g1, global_incumbent, per_thread_data, help_left, help_right, help_thread_nodes, help_depth, help_cur_sol, help_bidomains, help_me);
+                            new_solve_par(g0, g1, global_incumbent, per_thread_data, help_left, help_right, global_nodes, help_depth, help_cur_sol, help_bidomains, help_me);
                         }
                         else {
                             return;
@@ -884,6 +884,10 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                         which_i_should_i_run_next = shared_i++;
                     }
                     
+                };
+
+                std::function<void ()> main_function = [&]() {
+
                 };
             }
         }
