@@ -844,7 +844,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 std::atomic<int> shared_i{ 0 };
                 const int i_end = bidomains[depth/2].back().right_len + 2; /* including the null */
 
-                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
+                std::function<void (std::vector<VtxPair>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
                                     i_end, &help_me, &bidomains, &global_nodes] (std::vector<VtxPair> help_cur_sol, std::vector<int> help_left, std::vector<int> help_right) {
                     
                     int which_i_should_i_run_next = shared_i++;
