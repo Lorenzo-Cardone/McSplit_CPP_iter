@@ -234,6 +234,15 @@ struct AtomicIncumbent{
 };
 
 using PerThreadIncumbents = std::map<std::thread::id, vector<VtxPair> >;
+struct PerThreadDataStruct {
+    vector<VtxPair> best_sol;                   // best sol found
+    uint64_t best_sol_nodes;                    // number of tested pairs when best sol was found (a bit useless when multithreading)
+    struct timespec best_sol_time;              // time when best sol was first found (useless if best sol is not global best)
+    vector<VtxPair> first_backtrack_sol;        // first sol after which we had to backtrack (a bit useless when multithreading)
+    uint64_t first_backtrack_sol_nodes;         // number of tested pairs when we first had to backtrack (a bit useless when multithreading)
+    struct timespec first_backtrack_sol_time;   // time when first backtrack took place (a bit useless when multithreading)
+};
+using PerThreadData = std::map<std::thread::id, PerThreadDataStruct>;
 
 const constexpr int split_levels = 4;
 
@@ -734,13 +743,7 @@ void new_solve (const Graph & g0, const Graph & g1,
 
 void new_solve_par (const Graph & g0, const Graph & g1,
         AtomicIncumbent & global_incumbent,
-        PerThreadIncumbents & per_thread_incumbents,
-        vector<VtxPair> & best_sol,
-        uint64_t & best_sol_nodes,
-        struct timespec & best_sol_time,
-        vector<VtxPair> & first_backtrack_sol,
-        uint64_t & first_backtrack_sol_nodes,
-        struct timespec & first_backtrack_sol_time,
+        PerThreadData & per_thread_data,
         vector<int> & left, vector<int> & right,
         unsigned long long &global_nodes,
         int starting_depth,
@@ -750,6 +753,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
     ) 
 {
     int depth = starting_depth;
+    PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
 
     int v = INT_MAX;
     int w = -1;
@@ -759,10 +763,10 @@ void new_solve_par (const Graph & g0, const Graph & g1,
     while (depth >= starting_depth) {
         if ((depth % 2) == 0) {
 
-            if (current_sol.size() > best_sol.size()) {
-                best_sol = current_sol;
-                best_sol_nodes = global_nodes;
-                clock_gettime(CLOCK_MONOTONIC, &best_sol_time);
+            if (current_sol.size() > my_data.best_sol.size()) {
+                my_data.best_sol = current_sol;
+                my_data.best_sol_nodes = global_nodes;
+                clock_gettime(CLOCK_MONOTONIC, &my_data.best_sol_time);
             }
             
             if (abort_due_to_timeout) {
@@ -771,12 +775,12 @@ void new_solve_par (const Graph & g0, const Graph & g1,
             global_nodes += 1;
             bound = current_sol.size() + calc_bound(bidomains[depth/2]);
             
-            if (bound <= best_sol.size()) {
+            if (bound <= my_data.best_sol.size()) {
                 depth -= 1;
-                if (first_backtrack_sol.size() == 0) {
-                    first_backtrack_sol = current_sol;
-                    first_backtrack_sol_nodes = global_nodes;
-                    first_backtrack_sol_time = best_sol_time;
+                if (my_data.first_backtrack_sol.size() == 0) {
+                    my_data.first_backtrack_sol = current_sol;
+                    my_data.first_backtrack_sol_nodes = global_nodes;
+                    my_data.first_backtrack_sol_time = my_data.best_sol_time;
                 }
                 if (depth < 0) {
                     continue;
@@ -792,10 +796,10 @@ void new_solve_par (const Graph & g0, const Graph & g1,
             bool found = select_bidomain_no_idx(bidomains[depth/2], left, current_sol.size());
             if (!found) {
                 depth -= 1;
-                if (first_backtrack_sol.size() == 0) {
-                    first_backtrack_sol = current_sol;
-                    first_backtrack_sol_nodes = global_nodes;
-                    first_backtrack_sol_time = best_sol_time;
+                if (my_data.first_backtrack_sol.size() == 0) {
+                    my_data.first_backtrack_sol = current_sol;
+                    my_data.first_backtrack_sol_nodes = global_nodes;
+                    my_data.first_backtrack_sol_time = my_data.best_sol_time;
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
@@ -823,10 +827,10 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 else {
                     bidomains[depth/2].back().right_len += 1;
                     depth -= 1;
-                    if (first_backtrack_sol.size() == 0) {
-                        first_backtrack_sol = current_sol;
-                        first_backtrack_sol_nodes = global_nodes;
-                        first_backtrack_sol_time = best_sol_time;
+                    if (my_data.first_backtrack_sol.size() == 0) {
+                        my_data.first_backtrack_sol = current_sol;
+                        my_data.first_backtrack_sol_nodes = global_nodes;
+                        my_data.first_backtrack_sol_time = my_data.best_sol_time;
                     }
 
                     if (bidomains[depth/2].back().left_len == 0) {
@@ -840,9 +844,10 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 std::atomic<int> shared_i{ 0 };
                 const int i_end = bidomains[depth/2].back().right_len + 2; /* including the null */
 
-                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<std::vector<Bidomain>>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_incumbents, depth,
+                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<std::vector<Bidomain>>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
                                     i_end, &help_me] (unsigned long long & help_thread_nodes, std::vector<VtxPair> help_cur_sol, std::vector<std::vector<Bidomain>> help_bidomains, std::vector<int> help_left, std::vector<int> help_right) {
                     
+                    PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
                     int which_i_should_i_run_next = shared_i++;
 
                     if (which_i_should_i_run_next >= i_end)
@@ -866,16 +871,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
 
                             int help_depth = depth + 1;
                             // recursive call
-                            new_solve_par(g0, g1, global_incumbent, per_thread_incumbents,
-                                best_sol, best_sol_nodes, best_sol_time,
-                                first_backtrack_sol, first_backtrack_sol_nodes, first_backtrack_sol_time,
-                                help_left, help_right,
-                                help_thread_nodes,
-                                help_depth,
-                                help_cur_sol,
-                                help_bidomains,
-                                help_me
-                            );
+                            new_solve_par(g0, g1, global_incumbent, per_thread_data, help_left, help_right, help_thread_nodes, help_depth, help_cur_sol, help_bidomains, help_me);
                         }
                         else {
                             return;
