@@ -844,14 +844,18 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 std::atomic<int> shared_i{ 0 };
                 const int i_end = bidomains[depth/2].back().right_len + 2; /* including the null */
 
-                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<std::vector<Bidomain>>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
-                                    i_end, &help_me] (unsigned long long & help_thread_nodes, std::vector<VtxPair> help_cur_sol, std::vector<std::vector<Bidomain>> help_bidomains, std::vector<int> help_left, std::vector<int> help_right) {
+                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
+                                    i_end, &help_me, &bidomains] (unsigned long long & help_thread_nodes, std::vector<VtxPair> help_cur_sol, std::vector<int> help_left, std::vector<int> help_right) {
                     
-                    PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
                     int which_i_should_i_run_next = shared_i++;
 
                     if (which_i_should_i_run_next >= i_end)
                         return; /* don't waste time recomputing */
+
+                    PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
+                    std::vector<std::vector<Bidomain>> help_bidomains;
+                    help_bidomains.resize(bidomains.size());
+                    help_bidomains.back() = bidomains.back();
 
                     int help_v = help_left[help_bidomains[depth/2].back().l + help_bidomains[depth/2].back().left_len];
                     int help_w = -1;
