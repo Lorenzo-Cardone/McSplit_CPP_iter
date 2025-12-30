@@ -887,7 +887,31 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                 };
 
                 std::function<void ()> main_function = [&]() {
+                    int which_i_should_i_run_next = shared_i++;
 
+                    if (which_i_should_i_run_next >= i_end)
+                        return; /* don't waste time recomputing */
+
+                    for (int i = 0; i < i_end; i++) {
+                        w = solve_second_graph(right, bidomains[depth/2].back(), w);
+
+                        if (i != which_i_should_i_run_next) {
+                            continue;
+                        }
+
+                        if (w != -1) { 
+                            current_sol.emplace_back(VtxPair(v, w));
+                            
+                            bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
+
+                            depth += 1;
+                            // recursive call
+                            new_solve_par(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth, current_sol, bidomains, help_me);
+                        }
+                        else {
+                            return;
+                        }
+                    }
                 };
             }
         }
