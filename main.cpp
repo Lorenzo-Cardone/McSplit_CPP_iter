@@ -889,6 +889,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
 
     while (depth >= starting_depth) {
         if ((depth % 2) == 0) {
+            print_solution(current_sol);
 
             if (current_sol.size() > my_data.best_sol.size()) {
                 my_data.best_sol = current_sol;
@@ -1009,6 +1010,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                             return;
                         }
 
+                        help_bidomains[depth/2].back().right_len += 1;
                         which_i_should_i_run_next = shared_i++;
                     }
                     
@@ -1032,14 +1034,16 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                             
                             bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
 
-                            depth += 1;
-                            // recursive call
-                            new_solve_par(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth, current_sol, bidomains, help_me);
+                            new_solve_par(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth + 1, current_sol, bidomains, help_me);
+
+                            cout << "back to depth " << depth << endl;
                         }
-                        else {
-                            return;
-                        }
+
+                        bidomains[depth/2].back().right_len += 1;
+                        // disabled only for testing
+                        // which_i_should_i_run_next = shared_i++;
                     }
+                    depth -= 1;
                 };
 
                 Position position;
