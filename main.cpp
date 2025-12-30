@@ -942,7 +942,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
             // decide if there are too many "waiting tasks" in help_me
             // if so, just proceed sequentially
             // otherwise, offload the work to help_me (might be interesting to share only if the w has a different "best match")
-            if (help_me.tasks.size() >= 2*arguments.threads || bidomains[depth/2].back().right_len <= 1) {
+            if (((int)help_me.tasks.size() >= 2*arguments.threads) || (bidomains[depth/2].back().right_len <= 1)) {
                 w = solve_second_graph(right, bidomains[depth/2].back(), w);
                 if (w != -1) { 
                     current_sol.emplace_back(VtxPair(v, w));
@@ -980,7 +980,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                     if (which_i_should_i_run_next >= i_end)
                         return; /* don't waste time recomputing */
 
-                    PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
+                    //PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
                     std::vector<std::vector<Bidomain>> help_bidomains;
                     help_bidomains.resize(depth/2);
                     help_bidomains.back() = domains_to_share;
