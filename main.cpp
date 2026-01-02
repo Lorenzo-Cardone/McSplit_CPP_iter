@@ -195,6 +195,7 @@ struct VtxPair {
     int v;
     int w;
     VtxPair(int v, int w): v(v), w(w) {}
+    VtxPair(): v(-1), w(-1) {}
 };
 
 struct Bidomain {
@@ -247,6 +248,7 @@ struct PerThreadDataStruct {
     vector<VtxPair> first_backtrack_sol;        // first sol after which we had to backtrack (a bit useless when multithreading)
     uint64_t first_backtrack_sol_nodes;         // number of tested pairs when we first had to backtrack (a bit useless when multithreading)
     struct timespec first_backtrack_sol_time;   // time when first backtrack took place (a bit useless when multithreading)
+    float wasted_time;                          // time wasted in synchronization
 };
 using PerThreadData = std::map<std::thread::id, PerThreadDataStruct>;
 
@@ -402,20 +404,17 @@ struct HelpMe
     }
 };
 
-struct HelpMeNew
+struct HelpMeNewNoref
 {
     struct Task
     {
-        const std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<int>, std::vector<int>)> * func;
-        std::vector<VtxPair> * current_sol;
-        std::vector<int> * left;
-        std::vector<int> * right;
+        const std::function<void (unsigned long long &)> * func;
         int pending;
     };
 
     std::mutex general_mutex;
     std::condition_variable cv;
-    std::map<Position, HelpMeNew::Task> tasks;
+    std::map<Position, HelpMeNewNoref::Task> tasks;
     std::atomic<bool> finish;
 
     vector<std::thread> threads;
@@ -423,7 +422,7 @@ struct HelpMeNew
     std::list<milliseconds> times;
     std::list<unsigned long long> nodes;
 
-    HelpMeNew(int n_threads) :
+    HelpMeNewNoref(int n_threads) :
         finish(false)
     {
         for (int t = 0 ; t < n_threads ; ++t)
@@ -433,7 +432,7 @@ struct HelpMeNew
                     while (! finish.load()) {
                         std::unique_lock<std::mutex> guard(general_mutex);
                         bool did_something = false;
-                        for (std::map<Position, HelpMeNew::Task>::iterator task = tasks.begin() ; task != tasks.end() ; ++task) {
+                        for (std::map<Position, HelpMeNewNoref::Task>::iterator task = tasks.begin() ; task != tasks.end() ; ++task) {
                             // std::cout<< task->first.depth << " - ";
                              //for(int m = 0; m < task->first.values.size(); m++)
                                 //std::cout << task->first.values[m] << " ";
@@ -445,7 +444,7 @@ struct HelpMeNew
 
                                 auto start_work_time = steady_clock::now(); // local start time
 
-                                (*f)(this_thread_nodes, *(task->second.current_sol), *(task->second.left), *(task->second.right));
+                                (*f)(this_thread_nodes);
 
                                 auto work_time = duration_cast<milliseconds>(steady_clock::now() - start_work_time);
                                 total_work_time += work_time;
@@ -465,8 +464,8 @@ struct HelpMeNew
                     }
 
                     std::unique_lock<std::mutex> guard(general_mutex);
-                    times.push_back(total_work_time);
-                    nodes.push_back(this_thread_nodes);
+                    times.emplace_back(total_work_time);
+                    nodes.emplace_back(this_thread_nodes);
                     });
     }
     auto kill_workers() -> void{
@@ -489,23 +488,23 @@ struct HelpMeNew
             times.clear();
         }
     }
-    ~HelpMeNew(){
+    ~HelpMeNewNoref(){
         kill_workers();
     }
-    HelpMeNew(const HelpMeNew &) = delete;
+    HelpMeNewNoref(const HelpMeNewNoref &) = delete;
     void get_help_with(
             const Position & position,
             const std::function<void ()> & main_func,
-            std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<int>, std::vector<int>)> & thread_func,
-            std::vector<VtxPair> &current_sol,
-            std::vector<int> &left,
-            std::vector<int> &right
+            std::function<void (unsigned long long &)> & thread_func,
+            PerThreadDataStruct & my_data
         ){
-        std::map<Position, HelpMeNew::Task>::iterator task;
+        std::map<Position, HelpMeNewNoref::Task>::iterator task;
 
         {
             std::unique_lock<std::mutex> guard(general_mutex);
-            auto r = tasks.emplace(position, HelpMeNew::Task{ &thread_func, &current_sol, &left, &right, 0 });
+            if(tasks.contains(position))
+                fail("Task position already exists!");
+            auto r = tasks.emplace(position, HelpMeNewNoref::Task{ &thread_func, 0 });
             assert(r.second);
             task = r.first;
             cv.notify_all();
@@ -515,8 +514,14 @@ struct HelpMeNew
 
         {
             std::unique_lock<std::mutex> guard(general_mutex);
-            while (0 != task->second.pending)
+            // start time wasted timer
+            auto start_wasted_time = steady_clock::now();
+            while (0 != task->second.pending) {
                 cv.wait(guard);
+            }
+            // stop time wasted timer
+            auto wasted_time = duration_cast<milliseconds>(steady_clock::now() - start_wasted_time);
+            my_data.wasted_time += wasted_time.count() / 1000.0f;
             tasks.erase(task);
         }
     }
@@ -648,7 +653,7 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
         int left_len_noedge = old_bd.left_len - left_len;
         int right_len_noedge = old_bd.right_len - right_len;
         if (left_len_noedge && right_len_noedge)
-            new_d.push_back({l+left_len, r+right_len, left_len_noedge, right_len_noedge, old_bd.is_adjacent});
+            new_d.emplace_back(Bidomain{l+left_len, r+right_len, left_len_noedge, right_len_noedge, old_bd.is_adjacent});
         if (multiway && left_len && right_len) {
             auto& adjrow_v = g0.adjset[v];
             auto& adjrow_w = g1.adjset[w];
@@ -672,11 +677,11 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
                     int rmin = r;
                     do { l++; } while (l<l_top && ((adjrow_v.contains(left[l]) ? adjrow_v.at(left[l]) : 0) == left_label));
                     do { r++; } while (r<r_top && ((adjrow_w.contains(right[r]) ? adjrow_w.at(right[r]) : 0)==left_label));
-                    new_d.push_back({lmin, rmin, l-lmin, r-rmin, true});
+                    new_d.emplace_back(Bidomain{lmin, rmin, l-lmin, r-rmin, true});
                 }
             }
         } else if (left_len && right_len) {
-            new_d.push_back({l, r, left_len, right_len, true});
+            new_d.emplace_back(Bidomain{l, r, left_len, right_len, true});
         }
     }
     return new_d;
@@ -729,7 +734,6 @@ uint find_smallest_and_move_to_back (vector<int> &nodes, uint start, uint end, i
 
 uint solve_first_graph (vector<int> &nodes, Bidomain &bd)
 {
-    //println!("v: {} {}", bd.left_start, bd.left_len);
     uint vtx = find_smallest_and_move_to_back(nodes, bd.l, bd.l + bd.left_len, -1);
     bd.left_len -= 1;
     return vtx;
@@ -737,41 +741,24 @@ uint solve_first_graph (vector<int> &nodes, Bidomain &bd)
 
 uint solve_second_graph (vector<int> &nodes, Bidomain &bd, int larger_that)
 {
-    //println!("w: {} {}", bd.right_start, bd.right_len);
-
-    // debug
-    // loop over right and check for no duplicates
-    for (int check_i = 0; check_i < nodes.size(); check_i++) {
-        for (int check_j = check_i + 1; check_j < nodes.size(); check_j++) {
-            if (nodes[check_i] == nodes[check_j]) {
-                std::cerr << "Error: duplicate in right domain!" << std::endl;
-                exit(1);
-            }
-        }
-    }
-
-    if (bd.r == 5 && bd.l == 5 && bd.right_len == 6 && bd.left_len == 3 && larger_that == 6) {
-        cout << "CHECK" << endl;
-    }
-
     uint vtx = find_smallest_and_move_to_back(nodes, bd.r, bd.r + bd.right_len, larger_that);
-
-    // debug
-    // loop over right and check for no duplicates
-    for (int check_i = 0; check_i < nodes.size(); check_i++) {
-        for (int check_j = check_i + 1; check_j < nodes.size(); check_j++) {
-            if (nodes[check_i] == nodes[check_j]) {
-                std::cerr << "Error: duplicate in right domain!" << std::endl;
-                exit(1);
-            }
-        }
-    }
-
     bd.right_len -= 1;
     return vtx;
 }
 
 void print_solution (vector<VtxPair> sol) {
+	for (const auto &val : sol) {
+		cout << "(" << val.v << " - " << val.w << ") ";
+	}
+	cout << endl;
+	return;
+}
+
+void print_and_check_solution (vector<VtxPair> sol, const Graph & g0, const Graph & g1) {
+    if (!check_sol(g0, g1, sol)) {
+        std::cerr << "Error: invalid solution!" << std::endl;
+        exit(1);
+    }
 	for (const auto &val : sol) {
 		cout << "(" << val.v << " - " << val.w << ") ";
 	}
@@ -896,7 +883,7 @@ void new_solve (const Graph & g0, const Graph & g1,
     cout << "counter: " << global_nodes << endl;
 }
 
-void new_solve_par (const Graph & g0, const Graph & g1,
+void new_solve_par_noref (const Graph & g0, const Graph & g1,
         AtomicIncumbent & global_incumbent,
         PerThreadData & per_thread_data,
         vector<int> & left, vector<int> & right,
@@ -904,19 +891,9 @@ void new_solve_par (const Graph & g0, const Graph & g1,
         int starting_depth,
         vector<VtxPair>& current_sol,
         vector<vector<Bidomain>>& bidomains,
-        HelpMeNew &help_me
+        HelpMeNewNoref &help_me
     ) 
 {
-
-    cout << "left: ";
-    for (size_t i = 0; i < left.size(); i++) {
-        cout << left[i] << " ";
-    }
-    cout << endl << "right: ";
-    for (size_t i = 0; i < right.size(); i++) {
-        cout << right[i] << " ";
-    }
-    cout << endl;
     
     int depth = starting_depth;
     PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
@@ -928,7 +905,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
 
     while (depth >= starting_depth) {
         if ((depth % 2) == 0) {
-            print_solution(current_sol);
+            // print_and_check_solution(current_sol, g0, g1);
 
             if (current_sol.size() > my_data.best_sol.size()) {
                 my_data.best_sol = current_sol;
@@ -982,7 +959,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
             // decide if there are too many "waiting tasks" in help_me
             // if so, just proceed sequentially
             // otherwise, offload the work to help_me (might be interesting to share only if the w has a different "best match")
-            if (((int)help_me.tasks.size() >= 2*arguments.threads) || (bidomains[depth/2].back().right_len <= 1)) {
+            if ((w != -1) || ((int)help_me.tasks.size() >= 1*arguments.threads) || (bidomains[depth/2].back().right_len <= 2) || (depth*2 >= std::min(g0.n, g1.n))) {
                 w = solve_second_graph(right, bidomains[depth/2].back(), w);
                 if (w != -1) { 
                     current_sol.emplace_back(VtxPair(v, w));
@@ -1009,21 +986,23 @@ void new_solve_par (const Graph & g0, const Graph & g1,
             else 
             {
                 std::atomic<int> shared_i{ 0 };
-                const int i_end = bidomains[depth/2].back().right_len; /* including the null */
+                const int i_end = bidomains[depth/2].back().right_len;
                 vector<Bidomain> domains_to_share = bidomains[depth/2];
 
-                std::function<void (unsigned long long &, std::vector<VtxPair>, std::vector<int>, std::vector<int>)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
-                                    i_end, &help_me, &domains_to_share, current_sol, left, right] (unsigned long long &global_nodes_helper, std::vector<VtxPair> help_cur_sol, std::vector<int> help_left, std::vector<int> help_right) {
+                std::function<void (unsigned long long &)> helper_function = [&shared_i, &g0, &g1, &global_incumbent, &per_thread_data, depth,
+                                    i_end, &help_me, &domains_to_share, current_sol, left, right] (unsigned long long &global_nodes_helper) {
                     
                     int which_i_should_i_run_next = shared_i++;
 
                     if (which_i_should_i_run_next >= i_end)
                         return; /* don't waste time recomputing */
 
-                    //PerThreadDataStruct &my_data = per_thread_data[std::this_thread::get_id()];
-                    std::vector<std::vector<Bidomain>> help_bidomains;
-                    help_bidomains.resize(depth/2);
-                    help_bidomains.back() = domains_to_share;
+                    std::vector<std::vector<Bidomain>> help_bidomains(depth/2, std::vector<Bidomain>());
+                    help_bidomains.emplace_back(domains_to_share);
+
+                    std::vector<VtxPair> help_cur_sol = current_sol;
+                    std::vector<int> help_left = left;
+                    std::vector<int> help_right = right;
 
                     int help_v = help_left[help_bidomains[depth/2].back().l + help_bidomains[depth/2].back().left_len];
                     int help_w = -1;
@@ -1033,6 +1012,7 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                         help_w = solve_second_graph(help_right, help_bidomains[depth/2].back(), help_w);
 
                         if (i != which_i_should_i_run_next) {
+                            help_bidomains[depth/2].back().right_len += 1;
                             continue;
                         }
 
@@ -1043,31 +1023,27 @@ void new_solve_par (const Graph & g0, const Graph & g1,
 
                             int help_depth = depth + 1;
                             // recursive call
-                            new_solve_par(g0, g1, global_incumbent, per_thread_data, help_left, help_right, global_nodes_helper, help_depth, help_cur_sol, help_bidomains, help_me);
-                        }
-                        else {
-                            return;
+                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, help_left, help_right, global_nodes_helper, help_depth, help_cur_sol, help_bidomains, help_me);
                         }
 
-                        //help_bidomains[depth/2].back().right_len += 1;
                         which_i_should_i_run_next = shared_i++;
                     }
                     
                 };
 
                 std::function<void ()> main_function = [&]() {
+
                     int which_i_should_i_run_next = shared_i++;
 
                     if (which_i_should_i_run_next >= i_end)
                         return; /* don't waste time recomputing */
 
-                    for (int i = 0; i < i_end; i++) {
-
-                        Bidomain current_bd = bidomains[depth/2].back();
+                    for (int i = 0; (i < i_end) && (which_i_should_i_run_next < i_end); i++) {
 
                         w = solve_second_graph(right, bidomains[depth/2].back(), w);
 
                         if (i != which_i_should_i_run_next) {
+                            bidomains[depth/2].back().right_len += 1;
                             continue;
                         }
 
@@ -1076,32 +1052,29 @@ void new_solve_par (const Graph & g0, const Graph & g1,
                             
                             bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
 
-                            new_solve_par(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth + 1, current_sol, bidomains, help_me);
+                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth + 1, current_sol, bidomains, help_me);
 
-                            cout << "back to depth " << depth << endl;
-                        }
-
-                        if (current_bd.l != bidomains[depth/2].back().l ||
-                            current_bd.r != bidomains[depth/2].back().r ||
-                            current_bd.left_len != bidomains[depth/2].back().left_len ||
-                            current_bd.right_len != bidomains[depth/2].back().right_len) {
-                            
-                                cout << "CHECK CHANGE!" << endl;
+                            //cout << "back to depth " << depth << endl;
                         }
 
                         //bidomains[depth/2].back().right_len += 1;
                         which_i_should_i_run_next = shared_i++;
                     }
                     depth -= 1;
+
+                    if (bidomains[depth/2].back().left_len == 0) {
+                        // remove bidomain
+                        bidomains[depth/2].pop_back();
+                    }
                 };
 
                 Position position;
                 position.add(0, global_position_index++);
-                help_me.get_help_with(position, main_function, helper_function, current_sol, left, right);
+                help_me.get_help_with(position, main_function, helper_function, my_data);
             }
         }
     }
-    cout << "counter: " << global_nodes << endl;
+//    cout << "counter: " << global_nodes << endl;
 }
 
 void solve_nopar(const unsigned depth, const Graph & g0, const Graph & g1,
@@ -1417,13 +1390,13 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
                 }
             }
             else {
-                HelpMeNew help_me(arguments.threads - 1);
+                HelpMeNewNoref help_me(arguments.threads - 1);
                 for (auto & t : help_me.threads) {
                     per_thread_data.emplace(t.get_id(), PerThreadDataStruct());
                 }
                 vector<vector<Bidomain>> bidomains;
                 bidomains.emplace_back(domains);
-                new_solve_par(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
+                new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
                 help_me.kill_workers();
                 for (auto & n : help_me.nodes) {
                     global_nodes += n;
@@ -1468,13 +1441,13 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
             }
         }
         else {
-            HelpMeNew help_me(arguments.threads - 1);
+            HelpMeNewNoref help_me(arguments.threads - 1);
             for (auto & t : help_me.threads) {
                 per_thread_data.emplace(t.get_id(), PerThreadDataStruct());
             }
             vector<vector<Bidomain>> bidomains;
             bidomains.emplace_back(domains);
-            new_solve_par(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
+            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
             
             best_sol_info.sol = per_thread_data[std::this_thread::get_id()].best_sol;
             best_sol_info.nodes = per_thread_data[std::this_thread::get_id()].best_sol_nodes;
@@ -1487,12 +1460,15 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
             for (auto & n : help_me.nodes) {
                 global_nodes += n;
             }
+            cout << "Per-thread wasted time: ";
             for (auto & data_pair : per_thread_data) {
                 auto & data = data_pair.second;
                 if (data.best_sol.size() > incumbent.size()) {
                     incumbent = data.best_sol;
                 }
+                cout << data.wasted_time << " ";
             }
+            cout << endl;
         }
         //solve(0, g0, g1, global_incumbent, per_thread_incumbents, current, domains, left, right, 1, position, help_me, global_nodes);
         //for (auto & i : per_thread_incumbents)
