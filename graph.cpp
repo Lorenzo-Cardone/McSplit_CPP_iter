@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <string>
+#include <unordered_set>
 
 constexpr int BITS_PER_UNSIGNED_INT (CHAR_BIT * sizeof(unsigned int));
 
@@ -218,4 +219,29 @@ struct Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> 
     g.n = mat.size();
     g.label.resize(g.n, 0u);
     return g;
+}
+
+void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_in_fan_out)
+{
+    // for each node run BFS up to neighbourhood_radius
+    for (size_t start_node = 0; start_node < g.n; start_node++) {
+        std::unordered_map<unsigned int, float> label_count;
+        std::unordered_map<size_t, int> distance;
+
+        distance[start_node] = 0;
+
+        while (distance.size() > 0) {
+            // add all neighbours of nodes at distance d to distance d+1
+            for (auto neigh : g.adjset[start_node]) {
+                size_t neigh_idx = neigh.first;
+                if (distance.find(neigh_idx) == distance.end()) {
+                    distance[neigh_idx] = 1;
+                    ///////////////////////////////////////////////////////////////////////////////////////////////////////////
+                    ///////////////////////// missing distintion between fan-in and fan-out ///////////////////////////////////
+                    ///////////////////////////////////////////////////////////////////////////////////////////////////////////
+                }
+            }
+        }
+    }
+    return;
 }
