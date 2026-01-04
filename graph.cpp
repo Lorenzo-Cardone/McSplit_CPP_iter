@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_set>
 #include <cmath>
+#include <cstdint>
 
 constexpr int BITS_PER_UNSIGNED_INT (CHAR_BIT * sizeof(unsigned int));
 
@@ -222,12 +223,11 @@ struct Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> 
     return g;
 }
 
-void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, float distance_effect_dampening, bool limit_fan_in_fan_out)
+void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_in_fan_out, float distance_effect_dampening)
 {
 
     // for each node run BFS up to neighbourhood_radius
     for (size_t start_node = 0; start_node < g.n; start_node++) {
-        std::unordered_map<unsigned int, float> label_count;
         std::vector<std::pair<uint64_t, int>> frontier; // node_idx, distance
         std::unordered_map<uint64_t, int> visited_backward; // node_idx, distance
         std::unordered_map<uint64_t, int> visited_forward; // node_idx, distance
@@ -264,6 +264,15 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, float distance_
                     visited[neigh_idx] = distance;
                     frontier.emplace_back(std::pair<uint64_t, int>{neigh_idx, distance});
                 }
+            }
+        }
+
+        // visited all nodes, add them to label_count_per_node
+        for (auto* visited : {&visited_backward, &visited_forward}) {
+            for (const auto & [node_idx, distance] : *visited) {
+                unsigned int node_label = g.label[node_idx];
+                float effect = std::pow(distance_effect_dampening, static_cast<float>(distance - 1));
+                g.label_count_per_node_fan_in[start_node][node_label] += effect;
             }
         }
     }
