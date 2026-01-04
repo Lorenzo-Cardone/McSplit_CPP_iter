@@ -48,20 +48,20 @@ enum Heuristic { min_max, min_product };
 static char doc[] = "Find a maximum clique in a graph in DIMACS format\vHEURISTIC can be min_max or min_product";
 static char args_doc[] = "HEURISTIC FILENAME1 FILENAME2";
 static struct argp_option options[] = {
-    {"quiet", 'q', 0, 0, "Quiet output"},
-    {"verbose", 'v', 0, 0, "Verbose output"},
-    {"dimacs", 'd', 0, 0, "Read DIMACS format"},
-    {"lad", 'l', 0, 0, "Read LAD format"},
-    {"connected", 'c', 0, 0, "Solve max common CONNECTED subgraph problem"},
-    {"directed", 'i', 0, 0, "Use directed graphs"},
-    {"labelled", 'a', 0, 0, "Use edge and vertex labels"},
-    {"vertex-labelled-only", 'x', 0, 0, "Use vertex labels, but not edge labels"},
-    {"big-first", 'b', 0, 0, "First try to find an induced subgraph isomorphism, then decrement the target size"},
-    {"timeout", 't', "timeout", 0, "Specify a timeout (seconds)"},
-    {"threads", 'T', "threads", 0, "Specify how many threads to use"},
-    {"randomize_seed", 'r', "randomize_seed", 0, "Randomize the order of the nodes (default=0 for no randomization)"},
-    {"new_solver", 'n', 0, 0, "Use the new solver implementation"},
-    { 0 }
+    {"quiet", 'q', 0, 0, "Quiet output", 0},
+    {"verbose", 'v', 0, 0, "Verbose output", 0},
+    {"dimacs", 'd', 0, 0, "Read DIMACS format", 0},
+    {"lad", 'l', 0, 0, "Read LAD format", 0},
+    {"connected", 'c', 0, 0, "Solve max common CONNECTED subgraph problem", 0},
+    {"directed", 'i', 0, 0, "Use directed graphs", 0},
+    {"labelled", 'a', 0, 0, "Use edge and vertex labels", 0},
+    {"vertex-labelled-only", 'x', 0, 0, "Use vertex labels, but not edge labels", 0},
+    {"big-first", 'b', 0, 0, "First try to find an induced subgraph isomorphism, then decrement the target size", 0},
+    {"timeout", 't', "timeout", 0, "Specify a timeout (seconds)", 0},
+    {"threads", 'T', "threads", 0, "Specify how many threads to use", 0},
+    {"randomize_seed", 'r', "randomize_seed", 0, "Randomize the order of the nodes (default=0 for no randomization)", 0},
+    {"new_solver", 'n', 0, 0, "Use the new solver implementation", 0},
+    { 0, 0, 0, 0, 0, 0 }
 };
 
 static struct {
@@ -185,7 +185,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
     return 0;
 }
 
-static struct argp argp = { options, parse_opt, args_doc, doc };
+static struct argp argp = { options, parse_opt, args_doc, doc, 0, 0, 0 };
 
 /*******************************************************************************
                                  MCS functions
@@ -202,12 +202,14 @@ struct Bidomain {
     int l,        r;        // start indices of left and right sets
     int left_len, right_len;
     bool is_adjacent;
-    Bidomain(int l, int r, int left_len, int right_len, bool is_adjacent):
+    bool computed_distances;
+    Bidomain(int l, int r, int left_len, int right_len, bool is_adjacent, bool computed_distances = false) :
             l(l),
             r(r),
             left_len (left_len),
             right_len (right_len),
-            is_adjacent (is_adjacent) { };
+            is_adjacent (is_adjacent),
+            computed_distances (computed_distances) { };
 };
 
 struct AtomicIncumbent{
@@ -959,7 +961,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             // decide if there are too many "waiting tasks" in help_me
             // if so, just proceed sequentially
             // otherwise, offload the work to help_me (might be interesting to share only if the w has a different "best match")
-            if ((w != -1) || ((int)help_me.tasks.size() >= 1*arguments.threads) || (bidomains[depth/2].back().right_len <= 2) || (depth*2 >= std::min(g0.n, g1.n))) {
+            if ((w != -1) || ((int)help_me.tasks.size() >= 1*arguments.threads) || (bidomains[depth/2].back().right_len <= 2) || (depth*2 >= (int)std::min(g0.n, g1.n))) {
                 w = solve_second_graph(right, bidomains[depth/2].back(), w);
                 if (w != -1) { 
                     current_sol.emplace_back(VtxPair(v, w));
