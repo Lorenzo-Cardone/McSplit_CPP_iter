@@ -655,7 +655,7 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
         int left_len_noedge = old_bd.left_len - left_len;
         int right_len_noedge = old_bd.right_len - right_len;
         if (left_len_noedge && right_len_noedge)
-            new_d.emplace_back(Bidomain{l+left_len, r+right_len, left_len_noedge, right_len_noedge, old_bd.is_adjacent});
+            new_d.emplace_back(Bidomain{l+left_len, r+right_len, left_len_noedge, right_len_noedge, old_bd.is_adjacent, old_bd.computed_distances});
         if (multiway && left_len && right_len) {
             auto& adjrow_v = g0.adjset[v];
             auto& adjrow_w = g1.adjset[w];
@@ -679,11 +679,11 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
                     int rmin = r;
                     do { l++; } while (l<l_top && ((adjrow_v.contains(left[l]) ? adjrow_v.at(left[l]) : 0) == left_label));
                     do { r++; } while (r<r_top && ((adjrow_w.contains(right[r]) ? adjrow_w.at(right[r]) : 0)==left_label));
-                    new_d.emplace_back(Bidomain{lmin, rmin, l-lmin, r-rmin, true});
+                    new_d.emplace_back(Bidomain{lmin, rmin, l-lmin, r-rmin, true, old_bd.computed_distances});
                 }
             }
         } else if (left_len && right_len) {
-            new_d.emplace_back(Bidomain{l, r, left_len, right_len, true});
+            new_d.emplace_back(Bidomain{l, r, left_len, right_len, true, old_bd.computed_distances});
         }
     }
     return new_d;
