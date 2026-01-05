@@ -24,6 +24,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <cmath>
 
 
 using std::vector;
@@ -255,6 +256,8 @@ struct PerThreadDataStruct {
 using PerThreadData = std::map<std::thread::id, PerThreadDataStruct>;
 
 const constexpr int split_levels = 4;
+std::vector<std::unordered_map<int, float>> precomputed_distances; // node_left -> (node_right -> distance)
+// std::vector<std::vector<int>> sorted_precomputer_distances; // a set of vectors used as indexes for precomputed distances
 
 struct Position
 {
@@ -594,12 +597,11 @@ int select_bidomain(const vector<Bidomain>& domains, const vector<int> & left,
     return best;
 }
 
-bool select_bidomain_no_idx(vector<Bidomain>& domains, const vector<int> & left,
-        int current_matching_size){
+bool select_bidomain_no_idx(vector<Bidomain>& domains, const vector<int> & left, const vector<int> & right, int current_matching_size){
     // Select the bidomain with the smallest max(leftsize, rightsize), breaking
     // ties on the smallest vertex index in the left set
     int min_size = INT_MAX;
-    int min_tie_breaker = INT_MAX;
+    std::vector<int> bests;
     int best = -1;
     for (unsigned int i=0; i<domains.size(); i++) {
         const Bidomain &bd = domains[i];
@@ -609,18 +611,46 @@ bool select_bidomain_no_idx(vector<Bidomain>& domains, const vector<int> & left,
                 bd.left_len * bd.right_len;
         if (len < min_size) {
             min_size = len;
-            min_tie_breaker = find_min_value(left, bd.l, bd.left_len);
-            best = i;
+            bests.clear();
+            bests.emplace_back(i);
         } else if (len == min_size) {
-            int tie_breaker = find_min_value(left, bd.l, bd.left_len);
-            if (tie_breaker < min_tie_breaker) {
-                min_tie_breaker = tie_breaker;
-                best = i;
-            }
+            bests.emplace_back(i);
         }
     }
-    if (best == -1) {
+    if (bests.empty()) {
         return false;
+    }
+    if (bests.size() > 1) {
+        if (arguments.new_solver) {
+            float smallest_distance = __FLT_MAX__;
+            for (int idx : bests) {
+                const Bidomain &bd = domains[idx];
+                // loop over all distances from current node and get the lowest
+                for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
+                    int left_node = left[left_idx];
+                    for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
+                        int right_node = right[right_idx];
+                        float distance = precomputed_distances[left_node][right_node];
+                        if (distance < smallest_distance) {
+                            smallest_distance = distance;
+                            best = idx;
+                        }
+                    }
+                }
+            }
+        }
+        else {
+            int min_tie_breaker = INT_MAX;
+            for (int idx : bests) {
+                const Bidomain &bd = domains[idx];
+                int tie_breaker = find_min_value(left, bd.l, bd.left_len);
+                if (tie_breaker < min_tie_breaker) {
+                    min_tie_breaker = tie_breaker;
+                    best = idx;
+                }
+            }
+        }
+           
     }
     std::swap(domains[best], domains[domains.size() - 1]);
     return true;
@@ -734,16 +764,63 @@ uint find_smallest_and_move_to_back (vector<int> &nodes, uint start, uint end, i
     return smallest;
 }
 
-uint solve_first_graph (vector<int> &nodes, Bidomain &bd)
+uint find_smallest_and_move_to_back_left (vector<int> &left, vector<int> &right, Bidomain bd)
 {
-    uint vtx = find_smallest_and_move_to_back(nodes, bd.l, bd.l + bd.left_len, -1);
+    uint best = UINT_MAX;
+    float smallest_distance = __FLT_MAX__;
+    for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
+        int left_node = left[left_idx];
+        for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
+            int right_node = right[right_idx];
+            float distance = precomputed_distances[left_node][right_node];
+            if (distance < smallest_distance) {
+                smallest_distance = distance;
+                best = left_idx;
+            }
+        }
+    }
+    return best;
+}
+
+uint find_smallest_and_move_to_back_right (int v, vector<int> &right, Bidomain bd, int larger_that)
+{
+    uint best = UINT_MAX;
+    float smallest_distance = __FLT_MAX__;
+    int left_node = v;
+    for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
+        int right_node = right[right_idx];
+        if (right_node <= larger_that) {
+            continue;
+        }
+        float distance = precomputed_distances[left_node][right_node];
+        if (distance < smallest_distance) {
+            smallest_distance = distance;
+            best = right_node;
+        }
+    }
+    return best;
+}
+
+uint solve_first_graph (vector<int> &left, vector<int> &right, Bidomain &bd)
+{
+    uint vtx = UINT_MAX;
+    if (!arguments.new_solver) {
+        vtx = find_smallest_and_move_to_back(left, bd.l, bd.l + bd.left_len, -1);
+    } else {
+        vtx = find_smallest_and_move_to_back_left(left, right, bd);
+    }
     bd.left_len -= 1;
     return vtx;
 }
 
-uint solve_second_graph (vector<int> &nodes, Bidomain &bd, int larger_that)
+uint solve_second_graph (int v, vector<int> &right, Bidomain &bd, int larger_that)
 {
-    uint vtx = find_smallest_and_move_to_back(nodes, bd.r, bd.r + bd.right_len, larger_that);
+    uint vtx = UINT_MAX;
+    if (!arguments.new_solver) {
+        find_smallest_and_move_to_back(right, bd.r, bd.r + bd.right_len, larger_that);
+    } else {
+        vtx = find_smallest_and_move_to_back_right(v, right, bd, larger_that);
+    }
     bd.right_len -= 1;
     return vtx;
 }
@@ -841,11 +918,11 @@ void new_solve (const Graph & g0, const Graph & g1,
                 continue;
             }
             //bd = &bidomains[depth/2][current_bidomain[depth/2]];
-            v = solve_first_graph(left, bidomains[depth/2][current_bidomain[depth/2]]);
+            v = solve_first_graph(left, right, bidomains[depth/2][current_bidomain[depth/2]]);
             depth += 1;
         }
         else {
-            w = solve_second_graph(right, bidomains[depth/2][current_bidomain[depth/2]], w);
+            w = solve_second_graph(v, right, bidomains[depth/2][current_bidomain[depth/2]], w);
             if (w != -1) { 
                 current_sol.emplace_back(VtxPair(v, w));
 
@@ -939,7 +1016,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 continue;
             }
             w = -1;
-            bool found = select_bidomain_no_idx(bidomains[depth/2], left, current_sol.size());
+            bool found = select_bidomain_no_idx(bidomains[depth/2], left, right, current_sol.size());
             if (!found) {
                 depth -= 1;
                 if (my_data.first_backtrack_sol.size() == 0) {
@@ -954,7 +1031,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 bidomains[depth/2].back().right_len += 1;
                 continue;
             }
-            v = solve_first_graph(left, bidomains[depth/2].back());
+            v = solve_first_graph(left, right, bidomains[depth/2].back());
             depth += 1;
         }
         else {
@@ -962,7 +1039,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             // if so, just proceed sequentially
             // otherwise, offload the work to help_me (might be interesting to share only if the w has a different "best match")
             if ((w != -1) || ((int)help_me.tasks.size() >= 1*arguments.threads) || (bidomains[depth/2].back().right_len <= 2) || (depth*2 >= (int)std::min(g0.n, g1.n))) {
-                w = solve_second_graph(right, bidomains[depth/2].back(), w);
+                w = solve_second_graph(v, right, bidomains[depth/2].back(), w);
                 if (w != -1) { 
                     current_sol.emplace_back(VtxPair(v, w));
                     
@@ -1011,7 +1088,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
 
                     for (int i = 0; (i < i_end) && (which_i_should_i_run_next < i_end); i++) {
 
-                        help_w = solve_second_graph(help_right, help_bidomains[depth/2].back(), help_w);
+                        help_w = solve_second_graph(help_v, help_right, help_bidomains[depth/2].back(), help_w);
 
                         if (i != which_i_should_i_run_next) {
                             help_bidomains[depth/2].back().right_len += 1;
@@ -1042,7 +1119,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
 
                     for (int i = 0; (i < i_end) && (which_i_should_i_run_next < i_end); i++) {
 
-                        w = solve_second_graph(right, bidomains[depth/2].back(), w);
+                        w = solve_second_graph(v, right, bidomains[depth/2].back(), w);
 
                         if (i != which_i_should_i_run_next) {
                             bidomains[depth/2].back().right_len += 1;
@@ -1321,6 +1398,48 @@ struct SolInfo {
     }
 };
 
+void precompute_all_distances(const Graph & g0, const Graph & g1,
+        const vector<int> & left, const vector<int> & right,
+        vector<Bidomain> & domains) {
+    for (auto & bd : domains) {
+        for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
+            int left_node = left[left_idx];
+            for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
+                int right_node = right[right_idx];
+                if (!precomputed_distances[left[left_idx]].contains(right_node)) {
+                    // compute distance
+                    vector<float> distances;
+                    // euclidean distance between label count vectors
+                    for (const auto& [label, count] : g0.label_count_per_node_fan_out[left_node]) {
+                        float count_in_g1 = g1.label_count_per_node_fan_out[right_node].contains(label) ?
+                            g1.label_count_per_node_fan_out[right_node].at(label) : 0.0f;
+                        distances.emplace_back(std::pow(count - count_in_g1, 2));
+                    }
+                    for (const auto& [label, count] : g1.label_count_per_node_fan_out[right_node]) {
+                        if (!g0.label_count_per_node_fan_out[left_node].contains(label)) {
+                            distances.emplace_back(std::pow(count, 2));
+                        }
+                    }
+                    precomputed_distances[left_node][right_node] = std::sqrt(std::accumulate(distances.begin(), distances.end(), 0.0f));
+                }
+            }
+        }
+    }
+
+    // // sort the distances for each left vertex and store the order in sorted_precomputed_distances
+    // for (int left_idx = 0; left_idx < (int)g0.n; left_idx++) {
+    //     sorted_precomputer_distances.emplace_back(std::vector<int>());
+    //     for (auto & [key, val] : precomputed_distances[left_idx]) {
+    //         sorted_precomputer_distances[left_idx].emplace_back(key);
+    //     }
+    //     // sort smallest to largest
+    //     std::sort(sorted_precomputer_distances[left_idx].begin(), sorted_precomputer_distances[left_idx].end(),
+    //         [&left_idx](int a, int b) {
+    //             return precomputed_distances[left_idx][a] < precomputed_distances[left_idx][b];
+    //         });
+    // }
+}
+
 std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph & g1, SolInfo &best_sol_info, SolInfo &first_backtrack_sol_info) {
     vector<int> left;  // the buffer of vertex indices for the left partitions
     vector<int> right;  // the buffer of vertex indices for the right partitions
@@ -1356,6 +1475,8 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph
         int right_len = right.size() - start_r;
         domains.push_back({start_l, start_r, left_len, right_len, false});
     }
+
+    precompute_all_distances(g0, g1, left, right, domains);
 
     AtomicIncumbent global_incumbent;
     vector<VtxPair> incumbent;
