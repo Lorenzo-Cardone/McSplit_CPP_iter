@@ -20,6 +20,8 @@ Graph::Graph(unsigned int n) {
     this->n = n;
     label = std::vector<unsigned int>(n, 0u);
     adjset = {n, std::unordered_map<size_t, unsigned int>()};
+    label_count_per_node_fan_in = {n, std::unordered_map<unsigned int, float>()};
+    label_count_per_node_fan_out = {n, std::unordered_map<unsigned int, float>()};
 }
 
 Graph induced_subgraph(struct Graph& g, std::vector<int> vv) {
@@ -244,11 +246,11 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
                 // if limited fan in/fan out, check if current node is in forward or backward direction and add neighbour accordingly
                 if (limit_fan_in_fan_out) {
                     if (edge_label & 0xFFFFu) { // forward edge
-                        if (visited_forward.find(current.first) == visited_forward.end()) {
+                        if (visited_forward.find(current.first) != visited_forward.end()) {
                             continue; // cannot go forward from a node we reached backwards
                         }
                     } else { // backward edge
-                        if (visited_backward.find(current.first) == visited_backward.end()) {
+                        if (visited_backward.find(current.first) != visited_backward.end()) {
                             continue; // cannot go backward from a node we reached forwards
                         }
                     }
@@ -268,12 +270,15 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
         }
 
         // visited all nodes, add them to label_count_per_node
-        for (auto* visited : {&visited_backward, &visited_forward}) {
-            for (const auto & [node_idx, distance] : *visited) {
-                unsigned int node_label = g.label[node_idx];
-                float effect = std::pow(distance_effect_dampening, static_cast<float>(distance - 1));
-                g.label_count_per_node_fan_in[start_node][node_label] += effect;
-            }
+        for (const auto & [node_idx, distance] : visited_backward) {
+            unsigned int node_label = g.label[node_idx];
+            float effect = std::pow(distance_effect_dampening, static_cast<float>(distance - 1));
+            g.label_count_per_node_fan_in[start_node][node_label] += effect;
+        }
+        for (const auto & [node_idx, distance] : visited_forward) {
+            unsigned int node_label = g.label[node_idx];
+            float effect = std::pow(distance_effect_dampening, static_cast<float>(distance - 1));
+            g.label_count_per_node_fan_out[start_node][node_label] += effect;
         }
     }
     return;
