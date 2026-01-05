@@ -62,6 +62,9 @@ static struct argp_option options[] = {
     {"threads", 'T', "threads", 0, "Specify how many threads to use", 0},
     {"randomize_seed", 'r', "randomize_seed", 0, "Randomize the order of the nodes (default=0 for no randomization)", 0},
     {"new_solver", 'n', 0, 0, "Use the new solver implementation", 0},
+    {"neighbourhood_radius", 'e', "neighbourhood_radius", 0, "Radius for computing node descriptors (default=0 for no descriptors)", 0},
+    {"limit_fan_in_fan_out", 'f', 0, 0, "Set to limit node descriptors to fan-in and fan-out counts", 0},
+    {"distance_effect_dampening", 'z', "distance_effect_dampening", 0, "Dampening factor for distance effect in node descriptors (default=1.0, intended <1.0)", 0},
     { 0, 0, 0, 0, 0, 0 }
 };
 
@@ -83,6 +86,9 @@ static struct {
     int threads;
     int arg_num;
     size_t random_seed = 0;
+    int neighbourhood_radius = 0;
+    bool limit_fan_in_fan_out = false;
+    float distance_effect_dampening = 1.0;
 } arguments;
 
 static std::atomic<bool> abort_due_to_timeout;
@@ -159,6 +165,15 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             break;
         case 'n':
             arguments.new_solver = true;
+            break;
+        case 'e':
+            arguments.neighbourhood_radius = std::stoi(arg);
+            break;
+        case 'f':
+            arguments.limit_fan_in_fan_out = true;
+            break;
+        case 'z':
+            arguments.distance_effect_dampening = std::stof(arg);
             break;
         case ARGP_KEY_ARG:
             if (arguments.arg_num == 0) {
@@ -651,6 +666,8 @@ bool select_bidomain_no_idx(vector<Bidomain>& domains, const vector<int> & left,
             }
         }
            
+    } else {
+        best = bests[0];
     }
     std::swap(domains[best], domains[domains.size() - 1]);
     return true;
@@ -775,7 +792,7 @@ uint find_smallest_and_move_to_back_left (vector<int> &left, vector<int> &right,
             float distance = precomputed_distances[left_node][right_node];
             if (distance < smallest_distance) {
                 smallest_distance = distance;
-                best = left_idx;
+                best = left_node;
             }
         }
     }
@@ -817,7 +834,7 @@ uint solve_second_graph (int v, vector<int> &right, Bidomain &bd, int larger_tha
 {
     uint vtx = UINT_MAX;
     if (!arguments.new_solver) {
-        find_smallest_and_move_to_back(right, bd.r, bd.r + bd.right_len, larger_that);
+        vtx = find_smallest_and_move_to_back(right, bd.r, bd.r + bd.right_len, larger_that);
     } else {
         vtx = find_smallest_and_move_to_back_right(v, right, bd, larger_that);
     }
@@ -1398,9 +1415,12 @@ struct SolInfo {
     }
 };
 
-void precompute_all_distances(const Graph & g0, const Graph & g1,
+void precompute_all_distances(Graph & g0, Graph & g1,
         const vector<int> & left, const vector<int> & right,
         vector<Bidomain> & domains) {
+    computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+    computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+    precomputed_distances.resize(g0.n);
     for (auto & bd : domains) {
         for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
             int left_node = left[left_idx];
@@ -1440,7 +1460,7 @@ void precompute_all_distances(const Graph & g0, const Graph & g1,
     // }
 }
 
-std::pair<vector<VtxPair>, unsigned long long> mcs(const Graph & g0, const Graph & g1, SolInfo &best_sol_info, SolInfo &first_backtrack_sol_info) {
+std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolInfo &best_sol_info, SolInfo &first_backtrack_sol_info) {
     vector<int> left;  // the buffer of vertex indices for the left partitions
     vector<int> right;  // the buffer of vertex indices for the right partitions
     //std::cout << "mcs - " << std::this_thread::get_id() << std::endl;
