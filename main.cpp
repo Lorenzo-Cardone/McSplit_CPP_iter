@@ -781,39 +781,67 @@ uint find_smallest_and_move_to_back (vector<int> &nodes, uint start, uint end, i
     return smallest;
 }
 
-uint find_smallest_and_move_to_back_left (vector<int> &left, vector<int> &right, Bidomain bd)
+int find_smallest_and_move_to_back_left (vector<int> &left, vector<int> &right, Bidomain bd)
 {
-    uint best = UINT_MAX;
+    uint idx_smallest = UINT_MAX;
+    int best = UINT_MAX;
+    size_t best_count_smallest_instances = 0;
     float smallest_distance = __FLT_MAX__;
     for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
         int left_node = left[left_idx];
+        float current_smallest_distance = __FLT_MAX__;
+        size_t current_count_smallest_instances = 0;
         for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
             int right_node = right[right_idx];
             float distance = precomputed_distances[left_node][right_node];
-            if (distance < smallest_distance) {
-                smallest_distance = distance;
-                best = left_node;
+            if (distance < current_smallest_distance) {
+                current_smallest_distance = distance;
+                current_count_smallest_instances ++;
             }
         }
+        if (current_smallest_distance <= smallest_distance) {
+            if (best_count_smallest_instances > current_count_smallest_instances) {
+                continue;
+            }
+            if (best_count_smallest_instances == current_count_smallest_instances &&
+                best < left_node) {
+                continue;
+            }
+            best_count_smallest_instances = current_count_smallest_instances;
+            smallest_distance = current_smallest_distance;
+            idx_smallest = left_idx;
+            best = left_node;
+        }
+    }
+    if (idx_smallest != UINT_MAX) {
+        left[idx_smallest] = left[bd.l + bd.left_len - 1];
+        left[bd.l + bd.left_len - 1] = (int)best;
     }
     return best;
 }
 
-uint find_smallest_and_move_to_back_right (int v, vector<int> &right, Bidomain bd, int larger_that)
+int find_smallest_and_move_to_back_right (int v, vector<int> &right, Bidomain bd, int larger_that)
 {
-    uint best = UINT_MAX;
+    uint idx_smallest = UINT_MAX;
+    int best = UINT_MAX;
     float smallest_distance = __FLT_MAX__;
     int left_node = v;
+    float previous_smallest_distance = precomputed_distances[left_node].contains(larger_that) ? precomputed_distances[left_node][larger_that] : 0.0f;
     for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
         int right_node = right[right_idx];
-        if (right_node <= larger_that) {
+        float distance = precomputed_distances[left_node][right_node];
+        if (previous_smallest_distance > distance || (previous_smallest_distance == distance && right_node <= larger_that)) {
             continue;
         }
-        float distance = precomputed_distances[left_node][right_node];
-        if (distance < smallest_distance) {
+        if (distance < smallest_distance || (distance == smallest_distance && right_node < best)) {
             smallest_distance = distance;
+            idx_smallest = right_idx;
             best = right_node;
         }
+    }
+    if (idx_smallest != UINT_MAX) {
+        right[idx_smallest] = right[bd.r + bd.right_len - 1];
+        right[bd.r + bd.right_len - 1] = (int)best;
     }
     return best;
 }
@@ -851,13 +879,13 @@ void print_solution (vector<VtxPair> sol) {
 }
 
 void print_and_check_solution (vector<VtxPair> sol, const Graph & g0, const Graph & g1) {
+	for (const auto &val : sol) {
+		cout << "(" << val.v << " - " << val.w << ") ";
+	}
     if (!check_sol(g0, g1, sol)) {
         std::cerr << "Error: invalid solution!" << std::endl;
         exit(1);
     }
-	for (const auto &val : sol) {
-		cout << "(" << val.v << " - " << val.w << ") ";
-	}
 	cout << endl;
 	return;
 }
@@ -895,7 +923,11 @@ void new_solve (const Graph & g0, const Graph & g1,
             if (abort_due_to_timeout) {
                 break;
             }
-            //print_solution(current_sol);
+            {
+                // bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+                // cout << current_sol.size() << " - " << bound << " - ";
+                // print_solution(current_sol);
+            }
             global_nodes += 1;
             //show(&current_sol, &bidomains[(depth/2) as usize], &left, &right);
             bound = current_sol.size() + calc_bound(bidomains[depth/2]);
@@ -976,7 +1008,7 @@ void new_solve (const Graph & g0, const Graph & g1,
             }
         }
     }
-    cout << "counter: " << global_nodes << endl;
+    //cout << "counter: " << global_nodes << endl;
 }
 
 void new_solve_par_noref (const Graph & g0, const Graph & g1,
@@ -1001,7 +1033,11 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
 
     while (depth >= starting_depth) {
         if ((depth % 2) == 0) {
-            // print_and_check_solution(current_sol, g0, g1);
+            //{
+            //    bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+            //    cout << current_sol.size() << " - " << bound << " - ";
+            //    print_and_check_solution(current_sol, g0, g1);
+            //}
 
             if (current_sol.size() > my_data.best_sol.size()) {
                 my_data.best_sol = current_sol;
@@ -1135,7 +1171,6 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                         return; /* don't waste time recomputing */
 
                     for (int i = 0; (i < i_end) && (which_i_should_i_run_next < i_end); i++) {
-
                         w = solve_second_graph(v, right, bidomains[depth/2].back(), w);
 
                         if (i != which_i_should_i_run_next) {
@@ -1418,10 +1453,14 @@ struct SolInfo {
 void precompute_all_distances(Graph & g0, Graph & g1,
         const vector<int> & left, const vector<int> & right,
         vector<Bidomain> & domains) {
+    cout << "Computing node descriptors for g0... " << endl;
     computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+    cout << "Computing node descriptors for g1... " << endl;
     computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+    cout << "Computing distances... " << endl;
     precomputed_distances.resize(g0.n);
     for (auto & bd : domains) {
+        cout << "Preprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
         for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
             int left_node = left[left_idx];
             for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
@@ -1642,6 +1681,9 @@ int main(int argc, char** argv) {
     set_default_arguments();
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
+    if (arguments.random_seed == -1) {
+        arguments.random_seed = time(nullptr);
+    }
     if (arguments.random_seed != 0) {
         srand(arguments.random_seed);
     }
@@ -1750,6 +1792,7 @@ struct timespec s, finish;
 
     cout << "Nodes:                      " << solution.second << endl;
     cout << "CPU time (ms):              " << time_elapsed << endl;
+    cout << "Random seed:                " << arguments.random_seed << endl;
 
 
 
