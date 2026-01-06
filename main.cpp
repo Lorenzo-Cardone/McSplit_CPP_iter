@@ -1466,6 +1466,7 @@ void precompute_all_distances(Graph & g0, Graph & g1,
     computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
     cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing distances... " << endl;
     precomputed_distances.resize(g0.n);
+    #pragma omp parallel for
     for (auto & bd : domains) {
         cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
         for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
@@ -1674,6 +1675,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
 
 vector<int> calculate_degrees(const Graph & g) {
     vector<int> degree(g.n, 0);
+    #pragma omp parallel for
     for (size_t v=0; v<g.n; v++) {
         for (size_t w=0; w<g.n; w++) {
             unsigned int mask = 0xFFFFu;

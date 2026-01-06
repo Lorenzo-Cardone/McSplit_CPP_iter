@@ -26,6 +26,7 @@ Graph::Graph(unsigned int n) {
 
 Graph induced_subgraph(struct Graph& g, std::vector<int> vv) {
     Graph subg(vv.size());
+    #pragma omp parallel for
     for (size_t i=0; i<subg.n; i++) {
         //for (int j=0; j<subg.n; j++) {
         //    subg.adjmat[i][j] = g.adjmat[vv[i]][vv[j]];
