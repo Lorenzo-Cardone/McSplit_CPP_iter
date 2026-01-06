@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 #include <numeric>
+#include <ctime>
 #include <chrono>
 #include <iostream>
 #include <set>
@@ -59,6 +60,7 @@ static struct argp_option options[] = {
     {"vertex-labelled-only", 'x', 0, 0, "Use vertex labels, but not edge labels", 0},
     {"big-first", 'b', 0, 0, "First try to find an induced subgraph isomorphism, then decrement the target size", 0},
     {"timeout", 't', "timeout", 0, "Specify a timeout (seconds)", 0},
+    {"pair_timeout", 'p', "pair_timeout", 0, "Specify a timeout in the number of pairings tested (per thread)", 0},
     {"threads", 'T', "threads", 0, "Specify how many threads to use", 0},
     {"randomize_seed", 'r', "randomize_seed", 0, "Randomize the order of the nodes (default=0 for no randomization)", 0},
     {"new_solver", 'n', 0, 0, "Use the new solver implementation", 0},
@@ -83,6 +85,7 @@ static struct {
     char *filename1;
     char *filename2;
     int timeout;
+    size_t pair_timeout = 0;
     int threads;
     int arg_num;
     size_t random_seed = 0;
@@ -156,6 +159,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             break;
         case 't':
             arguments.timeout = std::stoi(arg);
+            break;
+        case 'p':
+            arguments.pair_timeout = std::stoull(arg);
             break;
         case 'T':
             arguments.threads = std::stoi(arg);
@@ -273,6 +279,7 @@ using PerThreadData = std::map<std::thread::id, PerThreadDataStruct>;
 const constexpr int split_levels = 4;
 std::vector<std::unordered_map<int, float>> precomputed_distances; // node_left -> (node_right -> distance)
 // std::vector<std::vector<int>> sorted_precomputer_distances; // a set of vectors used as indexes for precomputed distances
+std::chrono::_V2::steady_clock::time_point progress_timer;
 
 struct Position
 {
@@ -920,7 +927,7 @@ void new_solve (const Graph & g0, const Graph & g1,
     //Bidomain *bd = nullptr;
     while (depth >= 0) {
         if ((depth % 2) == 0) {
-            if (abort_due_to_timeout) {
+            if (abort_due_to_timeout || (arguments.pair_timeout > 0 && global_nodes >= arguments.pair_timeout)) {
                 break;
             }
             {
@@ -1045,7 +1052,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 clock_gettime(CLOCK_MONOTONIC, &my_data.best_sol_time);
             }
             
-            if (abort_due_to_timeout) {
+            if (abort_due_to_timeout || (arguments.pair_timeout > 0 && global_nodes >= arguments.pair_timeout)) {
                 break;
             }
             global_nodes += 1;
@@ -1214,7 +1221,7 @@ void solve_nopar(const unsigned depth, const Graph & g0, const Graph & g1,
         vector<VtxPair> & current, vector<Bidomain> & domains,
         vector<int> & left, vector<int> & right, const unsigned int matching_size_goal,
         unsigned long long & my_thread_nodes){
-    if (abort_due_to_timeout)
+    if (abort_due_to_timeout || (arguments.pair_timeout > 0 && my_thread_nodes >= arguments.pair_timeout))
         return;
 
 
@@ -1281,7 +1288,7 @@ void solve(const unsigned depth, const Graph & g0, const Graph & g1,
                 vector<int> & left, vector<int> & right, const unsigned int matching_size_goal,
                 const Position & position, HelpMe & help_me, unsigned long long & my_thread_nodes){
 
-    if (abort_due_to_timeout)
+    if (abort_due_to_timeout || (arguments.pair_timeout > 0 && my_thread_nodes >= arguments.pair_timeout))
         return;
     my_thread_nodes++;
     if (per_thread_incumbents.find(std::this_thread::get_id())->second.size() < current.size()) {
@@ -1453,14 +1460,14 @@ struct SolInfo {
 void precompute_all_distances(Graph & g0, Graph & g1,
         const vector<int> & left, const vector<int> & right,
         vector<Bidomain> & domains) {
-    cout << "Computing node descriptors for g0... " << endl;
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g0... " << endl;
     computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
-    cout << "Computing node descriptors for g1... " << endl;
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g1... " << endl;
     computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
-    cout << "Computing distances... " << endl;
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing distances... " << endl;
     precomputed_distances.resize(g0.n);
     for (auto & bd : domains) {
-        cout << "Preprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
+        cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
         for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
             int left_node = left[left_idx];
             for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
@@ -1559,6 +1566,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
                 for (auto & t : help_me.threads) {
                     per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
                 }
+                cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve for goal " << goal << " ..." <<  endl;
                 new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains_copy, left_copy, right_copy, global_nodes);
                 incumbent = best_sol_info.sol;
                 help_me.kill_workers();
@@ -1578,6 +1586,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
                 }
                 vector<vector<Bidomain>> bidomains;
                 bidomains.emplace_back(domains);
+                cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve for goal " << goal << " ..." << endl;
                 new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
                 help_me.kill_workers();
                 for (auto & n : help_me.nodes) {
@@ -1594,7 +1603,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
             //for (auto & i : per_thread_incumbents)
             //    if (i.second.size() > incumbent.size())
             //        incumbent = i.second;
-            if (global_incumbent.value == goal || abort_due_to_timeout) break;
+            if (global_incumbent.value == goal || abort_due_to_timeout || (arguments.pair_timeout > 0 && (global_nodes / arguments.threads) >= arguments.pair_timeout)) break;
             if (!arguments.quiet) cout << "Upper bound: " << goal-1 << std::endl;
         }
 
@@ -1610,6 +1619,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
             for (auto & t : help_me.threads) {
                 per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
             }
+            cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve ..." << endl;
             new_solve(g0, g1, best_sol_info.sol, best_sol_info.nodes, best_sol_info.time, first_backtrack_sol_info.sol, first_backtrack_sol_info.nodes, first_backtrack_sol_info.time, domains, left, right, global_nodes);
             incumbent = best_sol_info.sol;
             help_me.kill_workers();
@@ -1629,6 +1639,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
             }
             vector<vector<Bidomain>> bidomains;
             bidomains.emplace_back(domains);
+            cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve ..." << endl;
             new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
             
             best_sol_info.sol = per_thread_data[std::this_thread::get_id()].best_sol;
@@ -1693,7 +1704,10 @@ int main(int argc, char** argv) {
     //std::vector<std::vector<unsigned int>> mat1 = {{0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,1,0,0},{0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0},{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,1,0,1,0,0},{0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,1,1,0,0,0,1,0,0,1,0,0,0,0},{0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0},{0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0,0,0,0,0,0},{1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,1,0,0,1},{0,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,1,0,0},{0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0},{0,0,0,1,1,1,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0},{0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,0,1,1,0,0,0,0,1,0,0,1,0,0,0},{1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0},{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0},{0,0,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,0,1,0},{0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0},{0,1,1,0,1,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0},{0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,1,1,0,0,1,0,0,0,0},{1,0,1,1,0,1,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0},{1,0,0,1,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0},{0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1,0,0,0},{1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0},{0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,1,0,0,0,0,1,0,0,0,0,1,0},{0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1,0,0,0,1,0,1,0,0,0,0},{0,0,0,0,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,0,0,0},{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,1},{0,0,1,1,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0,1,0,0,1,0,1,0,0,0,0,0},{0,0,0,0,0,0,1,0,0,0,1,1,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0},{1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},{0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,1,0,0,1,0,0,0,0,0,0,0,0},{0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0}};
     //struct Graph g0 = graphFromMtx(mat0);
     //struct Graph g1 = graphFromMtx(mat1);
+    progress_timer = steady_clock::now();
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Reading graph g0 ..." << endl;
     struct Graph g0 = readGraph(arguments.filename1, format, arguments.directed, arguments.edge_labelled, arguments.vertex_labelled);
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Reading graph g1 ..." << endl;
     struct Graph g1 = readGraph(arguments.filename2, format, arguments.directed, arguments.edge_labelled, arguments.vertex_labelled);
 
     std::thread timeout_thread;
@@ -1725,7 +1739,9 @@ struct timespec s, finish;
 	clock_gettime(CLOCK_MONOTONIC, &s);
     //auto start = steady_clock::now();
 
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Calculating vertex degrees for graph g0 ..." << endl;
     vector<int> g0_deg = calculate_degrees(g0);
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Calculating vertex degrees for graph g1 ..." << endl;
     vector<int> g1_deg = calculate_degrees(g1);
 
     // As implemented here, g1_dense and g0_dense are false for all instances
@@ -1734,6 +1750,7 @@ struct timespec s, finish;
     // in the case of directed graphs.  Improvements could be made here: it would
     // be nice if the program explored exactly the same search tree if both
     // input graphs were complemented.
+    cout << "Sorting vertices by degree ..." << endl;
     vector<int> vv0(g0.n);
     std::iota(std::begin(vv0), std::end(vv0), 0);
     if (arguments.random_seed != 0) {
@@ -1753,7 +1770,9 @@ struct timespec s, finish;
         return g0_dense ? (g1_deg[a]<g1_deg[b]) : (g1_deg[a]>g1_deg[b]);
     });
 
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Creating induced subgraph g0_sorted ..." << endl;
     struct Graph g0_sorted = induced_subgraph(g0, vv0);
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Creating induced subgraph g1_sorted ..." << endl;
     struct Graph g1_sorted = induced_subgraph(g1, vv1);
 
     SolInfo best_sol_info, first_backtrack_sol_info;
@@ -1802,7 +1821,7 @@ struct timespec s, finish;
     cout << "### " << best_sol_info.sol.size() << " " << best_sol_info.nodes << " " << (double)((best_sol_info.time.tv_sec - s.tv_sec) + (best_sol_info.time.tv_nsec - s.tv_nsec) / 1000000000.0) << endl;
     cout << "--- " << first_backtrack_sol_info.sol.size() << " " << first_backtrack_sol_info.nodes << " " << (double)((first_backtrack_sol_info.time.tv_sec - s.tv_sec) + (first_backtrack_sol_info.time.tv_nsec - s.tv_nsec) / 1000000000.0) << endl;
 
-    if (aborted)
+    if (aborted || (arguments.pair_timeout > 0 && (solution.second / arguments.threads) >= arguments.pair_timeout))
         cout << "TIMEOUT" << endl;
 
     //g0.printGraphMtx();
