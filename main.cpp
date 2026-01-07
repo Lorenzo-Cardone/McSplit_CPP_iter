@@ -591,6 +591,35 @@ int find_min_value(const vector<int>& arr, int start_idx, int len) {
     return min_v;
 }
 
+void compute_domain_distances(Graph & g0, Graph & g1,
+        const vector<int> & left, const vector<int> & right,
+        Bidomain & bd) {
+    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
+    #pragma omp parallel for
+    for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
+        int left_node = left[left_idx];
+        for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
+            int right_node = right[right_idx];
+            if (!precomputed_distances[left[left_idx]].contains(right_node)) {
+                // compute distance
+                vector<float> distances;
+                // euclidean distance between label count vectors
+                for (const auto& [label, count] : g0.label_count_per_node_fan_out[left_node]) {
+                    float count_in_g1 = g1.label_count_per_node_fan_out[right_node].contains(label) ?
+                        g1.label_count_per_node_fan_out[right_node].at(label) : 0.0f;
+                    distances.emplace_back(std::pow(count - count_in_g1, 2));
+                }
+                for (const auto& [label, count] : g1.label_count_per_node_fan_out[right_node]) {
+                    if (!g0.label_count_per_node_fan_out[left_node].contains(label)) {
+                        distances.emplace_back(std::pow(count, 2));
+                    }
+                }
+                precomputed_distances[left_node][right_node] = std::sqrt(std::accumulate(distances.begin(), distances.end(), 0.0f));
+            }
+        }
+    }
+}
+
 int select_bidomain(const vector<Bidomain>& domains, const vector<int> & left,
         int current_matching_size){
     // Select the bidomain with the smallest max(leftsize, rightsize), breaking
@@ -1483,44 +1512,8 @@ void precompute_all_distances(Graph & g0, Graph & g1,
     cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing distances... " << endl;
     precomputed_distances.resize(g0.n);
     for (auto & bd : domains) {
-        cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
-        #pragma omp parallel for
-        for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
-            int left_node = left[left_idx];
-            for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
-                int right_node = right[right_idx];
-                if (!precomputed_distances[left[left_idx]].contains(right_node)) {
-                    // compute distance
-                    vector<float> distances;
-                    // euclidean distance between label count vectors
-                    for (const auto& [label, count] : g0.label_count_per_node_fan_out[left_node]) {
-                        float count_in_g1 = g1.label_count_per_node_fan_out[right_node].contains(label) ?
-                            g1.label_count_per_node_fan_out[right_node].at(label) : 0.0f;
-                        distances.emplace_back(std::pow(count - count_in_g1, 2));
-                    }
-                    for (const auto& [label, count] : g1.label_count_per_node_fan_out[right_node]) {
-                        if (!g0.label_count_per_node_fan_out[left_node].contains(label)) {
-                            distances.emplace_back(std::pow(count, 2));
-                        }
-                    }
-                    precomputed_distances[left_node][right_node] = std::sqrt(std::accumulate(distances.begin(), distances.end(), 0.0f));
-                }
-            }
-        }
+        compute_domain_distances(g0, g1, left, right, bd);
     }
-
-    // // sort the distances for each left vertex and store the order in sorted_precomputed_distances
-    // for (int left_idx = 0; left_idx < (int)g0.n; left_idx++) {
-    //     sorted_precomputer_distances.emplace_back(std::vector<int>());
-    //     for (auto & [key, val] : precomputed_distances[left_idx]) {
-    //         sorted_precomputer_distances[left_idx].emplace_back(key);
-    //     }
-    //     // sort smallest to largest
-    //     std::sort(sorted_precomputer_distances[left_idx].begin(), sorted_precomputer_distances[left_idx].end(),
-    //         [&left_idx](int a, int b) {
-    //             return precomputed_distances[left_idx][a] < precomputed_distances[left_idx][b];
-    //         });
-    // }
 }
 
 std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolInfo &best_sol_info, SolInfo &first_backtrack_sol_info) {
