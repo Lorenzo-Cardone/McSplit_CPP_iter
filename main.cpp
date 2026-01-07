@@ -591,16 +591,19 @@ int find_min_value(const vector<int>& arr, int start_idx, int len) {
     return min_v;
 }
 
-void compute_domain_distances(Graph & g0, Graph & g1,
+// size_t counter_distance_computations = 0;
+
+void compute_domain_distances(const Graph & g0, const Graph & g1,
         const vector<int> & left, const vector<int> & right,
         Bidomain & bd) {
-    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
+    // cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "...";// << endl;
     #pragma omp parallel for
     for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
         int left_node = left[left_idx];
         for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
             int right_node = right[right_idx];
-            if (!precomputed_distances[left[left_idx]].contains(right_node)) {
+            if (!precomputed_distances[left_node].contains(right_node)) {
+                // counter_distance_computations++;
                 // compute distance
                 vector<float> distances;
                 // euclidean distance between label count vectors
@@ -618,6 +621,8 @@ void compute_domain_distances(Graph & g0, Graph & g1,
             }
         }
     }
+    bd.computed_distances = true;
+    // cout << " Node pairs processed: " << counter_distance_computations << endl;
 }
 
 int select_bidomain(const vector<Bidomain>& domains, const vector<int> & left,
@@ -648,7 +653,7 @@ int select_bidomain(const vector<Bidomain>& domains, const vector<int> & left,
     return best;
 }
 
-bool select_bidomain_no_idx(vector<Bidomain>& domains, const vector<int> & left, const vector<int> & right, int current_matching_size){
+bool select_bidomain_no_idx(const Graph &g0, const Graph &g1,vector<Bidomain>& domains, const vector<int> & left, const vector<int> & right, int current_matching_size){
     // Select the bidomain with the smallest max(leftsize, rightsize), breaking
     // ties on the smallest vertex index in the left set
     int min_size = INT_MAX;
@@ -676,6 +681,9 @@ bool select_bidomain_no_idx(vector<Bidomain>& domains, const vector<int> & left,
             float smallest_distance = __FLT_MAX__;
             for (int idx : bests) {
                 const Bidomain &bd = domains[idx];
+                if (!bd.computed_distances) {
+                    compute_domain_distances(g0, g1, left, right, domains[idx]);
+                }
                 // loop over all distances from current node and get the lowest
                 for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
                     int left_node = left[left_idx];
@@ -959,11 +967,11 @@ void new_solve (const Graph & g0, const Graph & g1,
             if (abort_due_to_timeout || (arguments.pair_timeout > 0 && global_nodes >= arguments.pair_timeout)) {
                 break;
             }
-            {
-                // bound = current_sol.size() + calc_bound(bidomains[depth/2]);
-                // cout << current_sol.size() << " - " << bound << " - ";
-                // print_solution(current_sol);
-            }
+            //{
+            //    bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+            //    cout << current_sol.size() << " - " << bound << " - ";
+            //    print_solution(current_sol);
+            //}
             global_nodes += 1;
             //show(&current_sol, &bidomains[(depth/2) as usize], &left, &right);
             bound = current_sol.size() + calc_bound(bidomains[depth/2]);
@@ -1108,7 +1116,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 continue;
             }
             w = -1;
-            bool found = select_bidomain_no_idx(bidomains[depth/2], left, right, current_sol.size());
+            bool found = select_bidomain_no_idx(g0, g1, bidomains[depth/2], left, right, current_sol.size());
             if (!found) {
                 depth -= 1;
                 if (my_data.first_backtrack_sol.size() == 0) {
@@ -1130,7 +1138,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             // decide if there are too many "waiting tasks" in help_me
             // if so, just proceed sequentially
             // otherwise, offload the work to help_me (might be interesting to share only if the w has a different "best match")
-            if ((w != -1) || ((int)help_me.tasks.size() >= 1*arguments.threads) || (bidomains[depth/2].back().right_len <= 2) || (depth*2 >= (int)std::min(g0.n, g1.n))) {
+            if ((arguments.threads == 1) || (w != -1) || ((int)help_me.tasks.size() >= 1*arguments.threads) || (bidomains[depth/2].back().right_len <= 2) || (depth*2 >= (int)std::min(g0.n, g1.n))) {
                 w = solve_second_graph(v, right, bidomains[depth/2].back(), w);
                 if (w != -1) { 
                     current_sol.emplace_back(VtxPair(v, w));
@@ -1505,12 +1513,8 @@ struct SolInfo {
 void precompute_all_distances(Graph & g0, Graph & g1,
         const vector<int> & left, const vector<int> & right,
         vector<Bidomain> & domains) {
-    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g0... " << endl;
-    computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
-    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g1... " << endl;
-    computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
     cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing distances... " << endl;
-    precomputed_distances.resize(g0.n);
+    
     for (auto & bd : domains) {
         compute_domain_distances(g0, g1, left, right, bd);
     }
@@ -1552,7 +1556,16 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
         domains.push_back({start_l, start_r, left_len, right_len, false});
     }
 
-    precompute_all_distances(g0, g1, left, right, domains);
+    if (arguments.new_solver) {
+        precomputed_distances.resize(g0.n);
+        cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g0... " << endl;
+        computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+        cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g1... " << endl;
+        computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+        if (true || arguments.threads > 1) {
+            precompute_all_distances(g0, g1, left, right, domains);
+        }
+    }
 
     AtomicIncumbent global_incumbent;
     vector<VtxPair> incumbent;
@@ -1704,7 +1717,7 @@ int main(int argc, char** argv) {
     set_default_arguments();
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
-    if (arguments.random_seed == -1) {
+    if (arguments.random_seed == (size_t)-1) {
         arguments.random_seed = time(nullptr);
     }
     if (arguments.random_seed != 0) {
