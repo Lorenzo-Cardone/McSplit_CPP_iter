@@ -1026,7 +1026,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
         int starting_depth,
         vector<VtxPair>& current_sol,
         vector<vector<Bidomain>>& bidomains,
-        HelpMeNewNoref &help_me
+        HelpMeNewNoref &help_me,
+        bool &currently_aborting
     ) 
 {
     
@@ -1039,6 +1040,12 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
     uint bound = 0;
 
     while (depth >= starting_depth) {
+            
+        if (abort_due_to_timeout || (arguments.pair_timeout > 0 && global_nodes >= arguments.pair_timeout)) {
+            currently_aborting = true;
+            break;
+        }
+
         if ((depth % 2) == 0) {
             //{
             //    bound = current_sol.size() + calc_bound(bidomains[depth/2]);
@@ -1050,10 +1057,6 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 my_data.best_sol = current_sol;
                 my_data.best_sol_nodes = global_nodes;
                 clock_gettime(CLOCK_MONOTONIC, &my_data.best_sol_time);
-            }
-            
-            if (abort_due_to_timeout || (arguments.pair_timeout > 0 && global_nodes >= arguments.pair_timeout)) {
-                break;
             }
             global_nodes += 1;
             bound = current_sol.size() + calc_bound(bidomains[depth/2]);
@@ -1136,6 +1139,11 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                     if (which_i_should_i_run_next >= i_end)
                         return; /* don't waste time recomputing */
 
+                    bool help_currently_aborting = abort_due_to_timeout || (arguments.pair_timeout > 0 && global_nodes_helper >= arguments.pair_timeout);
+                    if (help_currently_aborting) {
+                        return;
+                    }
+
                     std::vector<std::vector<Bidomain>> help_bidomains(depth/2, std::vector<Bidomain>());
                     help_bidomains.emplace_back(domains_to_share);
 
@@ -1162,7 +1170,11 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
 
                             int help_depth = depth + 1;
                             // recursive call
-                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, help_left, help_right, global_nodes_helper, help_depth, help_cur_sol, help_bidomains, help_me);
+                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, help_left, help_right, global_nodes_helper, help_depth, help_cur_sol, help_bidomains, help_me, help_currently_aborting);
+                            
+                            if (help_currently_aborting) {
+                                return;
+                            }
                         }
 
                         which_i_should_i_run_next = shared_i++;
@@ -1190,7 +1202,11 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                             
                             bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
 
-                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth + 1, current_sol, bidomains, help_me);
+                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth + 1, current_sol, bidomains, help_me, currently_aborting);
+
+                            if (currently_aborting) {
+                                return;
+                            }
 
                             //cout << "back to depth " << depth << endl;
                         }
@@ -1466,9 +1482,9 @@ void precompute_all_distances(Graph & g0, Graph & g1,
     computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
     cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing distances... " << endl;
     precomputed_distances.resize(g0.n);
-    #pragma omp parallel for
     for (auto & bd : domains) {
         cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "..." << endl;
+        #pragma omp parallel for
         for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
             int left_node = left[left_idx];
             for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
@@ -1549,6 +1565,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
     vector<VtxPair> incumbent;
     unsigned long long global_nodes = 0;
     std::atomic<unsigned long long> atomic_global_nodes{0};
+    bool currently_aborting = false;
 
     if (arguments.big_first) {
         for (size_t k=0; k<g0.n; k++) {
@@ -1588,7 +1605,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
                 vector<vector<Bidomain>> bidomains;
                 bidomains.emplace_back(domains);
                 cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve for goal " << goal << " ..." << endl;
-                new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
+                new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me, currently_aborting);
                 help_me.kill_workers();
                 for (auto & n : help_me.nodes) {
                     global_nodes += n;
@@ -1641,7 +1658,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
             vector<vector<Bidomain>> bidomains;
             bidomains.emplace_back(domains);
             cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve ..." << endl;
-            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me);
+            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me, currently_aborting);
             
             best_sol_info.sol = per_thread_data[std::this_thread::get_id()].best_sol;
             best_sol_info.nodes = per_thread_data[std::this_thread::get_id()].best_sol_nodes;
