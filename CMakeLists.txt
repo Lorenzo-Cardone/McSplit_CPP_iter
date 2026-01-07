@@ -7,6 +7,7 @@ include(CTest)
 enable_testing()
 set(CMAKE_CXX_STANDARD 20)
 find_package(Threads REQUIRED)
+find_package(OpenMP REQUIRED)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
@@ -24,3 +25,4 @@ set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
 
 target_link_libraries(mcsp Threads::Threads)
+target_link_libraries(mcsp OpenMP::OpenMP_CXX)
