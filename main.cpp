@@ -1562,7 +1562,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
         computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
         cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g1... " << endl;
         computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
-        if (true || arguments.threads > 1) {
+        if (arguments.threads > 1) {
             precompute_all_distances(g0, g1, left, right, domains);
         }
     }
