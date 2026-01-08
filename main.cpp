@@ -679,6 +679,7 @@ bool select_bidomain_no_idx(const Graph &g0, const Graph &g1,vector<Bidomain>& d
     if (bests.size() > 1) {
         if (arguments.new_solver) {
             float smallest_distance = __FLT_MAX__;
+            int tie_breaker_index = -1;
             for (int idx : bests) {
                 const Bidomain &bd = domains[idx];
                 if (!bd.computed_distances) {
@@ -690,9 +691,10 @@ bool select_bidomain_no_idx(const Graph &g0, const Graph &g1,vector<Bidomain>& d
                     for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
                         int right_node = right[right_idx];
                         float distance = precomputed_distances[left_node][right_node];
-                        if (distance < smallest_distance) {
+                        if (distance < smallest_distance || (distance == smallest_distance && left_node < tie_breaker_index)) {
                             smallest_distance = distance;
                             best = idx;
+                            tie_breaker_index = left_node;
                         }
                     }
                 }
@@ -976,7 +978,7 @@ void new_solve (const Graph & g0, const Graph & g1,
             }
             //{
             //    bound = current_sol.size() + calc_bound(bidomains[depth/2]);
-            //    cout << current_sol.size() << " - " << bound << " - ";
+            //    cout << global_nodes << " - " << current_sol.size() << " - " << bound << " - ";
             //    print_solution(current_sol);
             //}
             global_nodes += 1;
@@ -1093,8 +1095,9 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
         if ((depth % 2) == 0) {
             //{
             //    bound = current_sol.size() + calc_bound(bidomains[depth/2]);
-            //    cout << current_sol.size() << " - " << bound << " - ";
-            //    print_and_check_solution(current_sol, g0, g1);
+            //    cout << global_nodes << " - " << current_sol.size() << " - " << bound << " - ";
+            //    //print_and_check_solution(current_sol, g0, g1);
+            //    print_solution(current_sol);
             //}
 
             if (current_sol.size() > my_data.best_sol.size()) {
