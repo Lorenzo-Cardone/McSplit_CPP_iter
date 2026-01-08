@@ -777,6 +777,13 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
             new_d.emplace_back(Bidomain{l, r, left_len, right_len, true, old_bd.computed_distances});
         }
     }
+    if (arguments.new_solver) {
+        for (Bidomain &bd : new_d) {
+            if (!bd.computed_distances && (bd.left_len * bd.right_len <= 1000)) {
+                compute_domain_distances(g0, g1, left, right, bd);
+            }
+        }
+    }
     return new_d;
 }
 
