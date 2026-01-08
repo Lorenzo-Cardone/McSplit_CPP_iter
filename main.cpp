@@ -52,6 +52,7 @@ static char args_doc[] = "HEURISTIC FILENAME1 FILENAME2";
 static struct argp_option options[] = {
     {"quiet", 'q', 0, 0, "Quiet output", 0},
     {"verbose", 'v', 0, 0, "Verbose output", 0},
+    {"debug", 'g', 0, 0, "Add more debug checks", 0},
     {"dimacs", 'd', 0, 0, "Read DIMACS format", 0},
     {"lad", 'l', 0, 0, "Read LAD format", 0},
     {"connected", 'c', 0, 0, "Solve max common CONNECTED subgraph problem", 0},
@@ -73,6 +74,7 @@ static struct argp_option options[] = {
 static struct {
     bool quiet;
     bool verbose;
+    bool debug;
     bool dimacs;
     bool lad;
     bool connected;
@@ -100,6 +102,7 @@ std::atomic<size_t> global_position {0};
 void set_default_arguments() {
     arguments.quiet = false;
     arguments.verbose = false;
+    arguments.debug = false;
     arguments.dimacs = false;
     arguments.lad = false;
     arguments.connected = false;
@@ -132,6 +135,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             break;
         case 'v':
             arguments.verbose = true;
+            break;
+        case 'g':
+            arguments.debug = true;
             break;
         case 'c':
             //if (arguments.directed)
@@ -976,11 +982,16 @@ void new_solve (const Graph & g0, const Graph & g1,
             if (abort_due_to_timeout || (arguments.pair_timeout > 0 && global_nodes >= arguments.pair_timeout)) {
                 break;
             }
-            //{
-            //    bound = current_sol.size() + calc_bound(bidomains[depth/2]);
-            //    cout << global_nodes << " - " << current_sol.size() << " - " << bound << " - ";
-            //    print_solution(current_sol);
-            //}
+            if (arguments.verbose)
+            {
+                bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+                cout << global_nodes << " - " << current_sol.size() << " - " << bound << " - ";
+                if (arguments.debug) {
+                    print_and_check_solution(current_sol, g0, g1);
+                } else {
+                    print_solution(current_sol);
+                }
+            }
             global_nodes += 1;
             //show(&current_sol, &bidomains[(depth/2) as usize], &left, &right);
             bound = current_sol.size() + calc_bound(bidomains[depth/2]);
@@ -1093,12 +1104,15 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
         }
 
         if ((depth % 2) == 0) {
-            //{
-            //    bound = current_sol.size() + calc_bound(bidomains[depth/2]);
-            //    cout << global_nodes << " - " << current_sol.size() << " - " << bound << " - ";
-            //    //print_and_check_solution(current_sol, g0, g1);
-            //    print_solution(current_sol);
-            //}
+            if (arguments.verbose) {
+                bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+                cout << global_nodes << " - " << current_sol.size() << " - " << bound << " - ";
+                if (arguments.debug) {
+                    print_and_check_solution(current_sol, g0, g1);
+                } else {
+                    print_solution(current_sol);
+                }
+            }
 
             if (current_sol.size() > my_data.best_sol.size()) {
                 my_data.best_sol = current_sol;
