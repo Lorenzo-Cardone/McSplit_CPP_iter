@@ -740,6 +740,9 @@ bool select_bidomain_no_idx(const Graph &g0, const Graph &g1,vector<Bidomain>& d
            
     } else {
         best = bests[0];
+        if (!domains[best].computed_distances) {
+            compute_domain_distances(g0, g1, left, right, domains[best]);
+        }
     }
     std::swap(domains[best], domains[domains.size() - 1]);
     return true;
@@ -1764,7 +1767,7 @@ int main(int argc, char** argv) {
     if (arguments.rutgers_solver) {
         arguments.limit_fan_in_fan_out = false;
         arguments.distance_effect_dampening = 1.0;
-        arguments.neighbourhood_radius = 1;
+        arguments.neighbourhood_radius = 2;
     }
 
     if (arguments.random_seed == (size_t)-1) {
