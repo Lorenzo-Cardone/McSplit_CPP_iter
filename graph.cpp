@@ -226,20 +226,22 @@ struct Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> 
     return g;
 }
 
+enum Direction { FORWARD, BACKWARD, BOTH };
+
 void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_in_fan_out, float distance_effect_dampening)
 {
 
     // for each node run BFS up to neighbourhood_radius
     #pragma omp parallel for
     for (size_t start_node = 0; start_node < g.n; start_node++) {
-        std::vector<std::pair<uint64_t, int>> frontier; // node_idx, distance
+        std::vector<std::pair<uint64_t, std::pair<int, Direction>>> frontier; // node_idx, distance
         std::unordered_map<uint64_t, int> visited_backward; // node_idx, distance
         std::unordered_map<uint64_t, int> visited_forward; // node_idx, distance
 
-        frontier.emplace_back(std::pair<uint64_t, int>{start_node, 0});
+        frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{start_node, {0, BOTH}});
 
         while (frontier.size() > 0) {
-            auto current = frontier.front();
+            std::pair<uint64_t, std::pair<int, Direction>> current = frontier.front();
             frontier.erase(frontier.begin());
             // add all neighbours of nodes at distance d to distance d+1
             for (auto neigh : g.adjset[current.first]) {
@@ -248,27 +250,27 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
                 // if limited fan in/fan out, check if current node is in forward or backward direction and add neighbour accordingly
                 if (limit_fan_in_fan_out) {
                     if (edge_label & 0xFFFFu) { // forward edge
-                        if (!visited_forward.contains(current.first)) {
+                        if (current.second.second == BACKWARD) {
                             continue; // cannot go forward from a node we reached backwards
                         }
                     } 
                     if (edge_label & 0xFFFF0000u) { // backward edge
-                        if (!visited_backward.contains(current.first)) {
+                        if (current.second.second == FORWARD) {
                             continue; // cannot go backward from a node we reached forwards
                         }
                     }
                 }
-                int distance = current.second + 1;
+                int distance = current.second.first + 1;
                 if (distance > neighbourhood_radius)
                     continue;
                 // exit edge is val, enter edge is val << 16
-                std::unordered_map<uint64_t, int> * visited = &visited_forward;
-                if (limit_fan_in_fan_out && edge_label & 0xFFFF0000u) {
-                    visited = &visited_backward;
+                if (edge_label & 0xFFFFu) {
+                    visited_forward[current.first] = distance;
+                    frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{neigh_idx, {distance, FORWARD}});
                 }
-                if (visited->find(neigh_idx) == visited->end()) {
-                    (*visited)[neigh_idx] = distance;
-                    frontier.emplace_back(std::pair<uint64_t, int>{neigh_idx, distance});
+                if (edge_label & 0xFFFF0000u) {
+                    visited_backward[current.first] = distance;
+                    frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{neigh_idx, {distance, BACKWARD}});
                 }
             }
         }
