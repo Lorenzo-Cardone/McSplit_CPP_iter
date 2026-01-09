@@ -248,11 +248,12 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
                 // if limited fan in/fan out, check if current node is in forward or backward direction and add neighbour accordingly
                 if (limit_fan_in_fan_out) {
                     if (edge_label & 0xFFFFu) { // forward edge
-                        if (visited_forward.find(current.first) != visited_forward.end()) {
+                        if (!visited_forward.contains(current.first)) {
                             continue; // cannot go forward from a node we reached backwards
                         }
-                    } else { // backward edge
-                        if (visited_backward.find(current.first) != visited_backward.end()) {
+                    } 
+                    if (edge_label & 0xFFFF0000u) { // backward edge
+                        if (!visited_backward.contains(current.first)) {
                             continue; // cannot go backward from a node we reached forwards
                         }
                     }
@@ -261,11 +262,12 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
                 if (distance > neighbourhood_radius)
                     continue;
                 // exit edge is val, enter edge is val << 16
-                std::unordered_map<uint64_t, int> & visited = limit_fan_in_fan_out ?
-                    (edge_label & 0xFFFFu ? visited_forward : visited_backward) :
-                    visited_forward;
-                if (visited.find(neigh_idx) == visited.end()) {
-                    visited[neigh_idx] = distance;
+                std::unordered_map<uint64_t, int> * visited = &visited_forward;
+                if (limit_fan_in_fan_out && edge_label & 0xFFFF0000u) {
+                    visited = &visited_backward;
+                }
+                if (visited->find(neigh_idx) == visited->end()) {
+                    (*visited)[neigh_idx] = distance;
                     frontier.emplace_back(std::pair<uint64_t, int>{neigh_idx, distance});
                 }
             }
