@@ -633,6 +633,16 @@ void compute_domain_distances(const Graph & g0, const Graph & g1,
                         distances.emplace_back(std::pow(count, 2));
                     }
                 }
+                for (const auto& [label, count] : g0.label_count_per_node_fan_in[left_node]) {
+                    float count_in_g1 = g1.label_count_per_node_fan_in[right_node].contains(label) ?
+                        g1.label_count_per_node_fan_in[right_node].at(label) : 0.0f;
+                    distances.emplace_back(std::pow(count - count_in_g1, 2));
+                }
+                for (const auto& [label, count] : g1.label_count_per_node_fan_in[right_node]) {
+                    if (!g0.label_count_per_node_fan_in[left_node].contains(label)) {
+                        distances.emplace_back(std::pow(count, 2));
+                    }
+                }
                 precomputed_distances[left_node][right_node] = std::sqrt(std::accumulate(distances.begin(), distances.end(), 0.0f));
             }
         }
