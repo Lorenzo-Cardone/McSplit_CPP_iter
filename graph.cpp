@@ -230,6 +230,7 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
 {
 
     // for each node run BFS up to neighbourhood_radius
+    #pragma omp parallel for
     for (size_t start_node = 0; start_node < g.n; start_node++) {
         std::vector<std::pair<uint64_t, int>> frontier; // node_idx, distance
         std::unordered_map<uint64_t, int> visited_backward; // node_idx, distance
