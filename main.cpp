@@ -64,6 +64,7 @@ static struct argp_option options[] = {
     {"pair_timeout", 'p', "pair_timeout", 0, "Specify a timeout in the number of pairings tested (per thread)", 0},
     {"threads", 'T', "threads", 0, "Specify how many threads to use", 0},
     {"randomize_seed", 'r', "randomize_seed", 0, "Randomize the order of the nodes (default=0 for no randomization)", 0},
+    {"rutgers_solver", 'u', 0, 0, "Use the Rutgers solver implementation", 0},
     {"new_solver", 'n', 0, 0, "Use the new solver implementation", 0},
     {"neighbourhood_radius", 'e', "neighbourhood_radius", 0, "Radius for computing node descriptors (default=0 for no descriptors)", 0},
     {"limit_fan_in_fan_out", 'f', 0, 0, "Set to limit node descriptors to fan-in and fan-out counts", 0},
@@ -82,6 +83,7 @@ static struct {
     bool edge_labelled;
     bool vertex_labelled;
     bool big_first;
+    bool rutgers_solver;
     bool new_solver;
     Heuristic heuristic;
     char *filename1;
@@ -115,6 +117,7 @@ void set_default_arguments() {
     arguments.timeout = 0;
     arguments.threads = std::thread::hardware_concurrency();
     arguments.arg_num = 0;
+    arguments.rutgers_solver = false;
     arguments.new_solver = false;
 }
 
@@ -175,7 +178,14 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
         case 'r':
             arguments.random_seed = std::stoul(arg);
             break;
+        case 'u':
+            if (arguments.new_solver)
+                fail("The -u (--rutgers_solver) and -n (--new_solver) options can't be used together.");
+            arguments.rutgers_solver = true;
+            break;
         case 'n':
+            if (arguments.rutgers_solver)
+                fail("The -u (--rutgers_solver) and -n (--new_solver) options can't be used together.");
             arguments.new_solver = true;
             break;
         case 'e':
@@ -683,7 +693,7 @@ bool select_bidomain_no_idx(const Graph &g0, const Graph &g1,vector<Bidomain>& d
         return false;
     }
     if (bests.size() > 1) {
-        if (arguments.new_solver) {
+        if (arguments.new_solver || arguments.rutgers_solver) {
             float smallest_distance = __FLT_MAX__;
             int tie_breaker_index = -1;
             for (int idx : bests) {
@@ -785,7 +795,7 @@ vector<Bidomain> filter_domains(const vector<Bidomain> & d, vector<int> & left,
             new_d.emplace_back(Bidomain{l, r, left_len, right_len, true, old_bd.computed_distances});
         }
     }
-    if (arguments.new_solver) {
+    if (arguments.new_solver || arguments.rutgers_solver) {
         for (Bidomain &bd : new_d) {
             if (!bd.computed_distances && (bd.left_len * bd.right_len <= 1000)) {
                 compute_domain_distances(g0, g1, left, right, bd);
@@ -908,7 +918,7 @@ int find_smallest_and_move_to_back_right (int v, vector<int> &right, Bidomain bd
 uint solve_first_graph (vector<int> &left, vector<int> &right, Bidomain &bd)
 {
     uint vtx = UINT_MAX;
-    if (!arguments.new_solver) {
+    if (!arguments.new_solver && !arguments.rutgers_solver) {
         vtx = find_smallest_and_move_to_back(left, bd.l, bd.l + bd.left_len, -1);
     } else {
         vtx = find_smallest_and_move_to_back_left(left, right, bd);
@@ -920,7 +930,7 @@ uint solve_first_graph (vector<int> &left, vector<int> &right, Bidomain &bd)
 uint solve_second_graph (int v, vector<int> &right, Bidomain &bd, int larger_that)
 {
     uint vtx = UINT_MAX;
-    if (!arguments.new_solver) {
+    if (!arguments.new_solver && !arguments.rutgers_solver) {
         vtx = find_smallest_and_move_to_back(right, bd.r, bd.r + bd.right_len, larger_that);
     } else {
         vtx = find_smallest_and_move_to_back_right(v, right, bd, larger_that);
@@ -1580,7 +1590,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
         domains.push_back({start_l, start_r, left_len, right_len, false});
     }
 
-    if (arguments.new_solver) {
+    if (arguments.new_solver || arguments.rutgers_solver) {
         precomputed_distances.resize(g0.n);
         cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g0... " << endl;
         computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
@@ -1609,7 +1619,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
             PerThreadData per_thread_data;
             per_thread_data.emplace(std::this_thread::get_id(), PerThreadDataStruct());
             Position position;
-            if (!arguments.new_solver) {
+            if (!arguments.new_solver && !arguments.rutgers_solver) {
                 HelpMe help_me(arguments.threads - 1);
                 for (auto & t : help_me.threads) {
                     per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
@@ -1662,7 +1672,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
         PerThreadData per_thread_data;
         per_thread_data.emplace(std::this_thread::get_id(), PerThreadDataStruct());
         Position position;
-        if (!arguments.new_solver) {
+        if (!arguments.new_solver && !arguments.rutgers_solver) {
             HelpMe help_me(arguments.threads - 1);
             for (auto & t : help_me.threads) {
                 per_thread_incumbents.emplace(t.get_id(), vector<VtxPair>());
@@ -1741,6 +1751,12 @@ int main(int argc, char** argv) {
     set_default_arguments();
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
+    if (arguments.rutgers_solver) {
+        arguments.limit_fan_in_fan_out = false;
+        arguments.distance_effect_dampening = 1.0;
+        arguments.neighbourhood_radius = 1;
+    }
+
     if (arguments.random_seed == (size_t)-1) {
         arguments.random_seed = time(nullptr);
     }
@@ -1788,36 +1804,40 @@ struct timespec s, finish;
 	clock_gettime(CLOCK_MONOTONIC, &s);
     //auto start = steady_clock::now();
 
-    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Calculating vertex degrees for graph g0 ..." << endl;
-    vector<int> g0_deg = calculate_degrees(g0);
-    cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Calculating vertex degrees for graph g1 ..." << endl;
-    vector<int> g1_deg = calculate_degrees(g1);
-
-    // As implemented here, g1_dense and g0_dense are false for all instances
-    // in the Experimental Evaluation section of the paper.  Thus,
-    // we always sort the vertices in descending order of degree (or total degree,
-    // in the case of directed graphs.  Improvements could be made here: it would
-    // be nice if the program explored exactly the same search tree if both
-    // input graphs were complemented.
-    cout << "Sorting vertices by degree ..." << endl;
     vector<int> vv0(g0.n);
     std::iota(std::begin(vv0), std::end(vv0), 0);
     if (arguments.random_seed != 0) {
         std::random_shuffle(std::begin(vv0), std::end(vv0));
     }
-    bool g1_dense = (size_t)sum(g1_deg) > g1.n*(g1.n-1);
-    std::stable_sort(std::begin(vv0), std::end(vv0), [&](int a, int b) {
-        return g1_dense ? (g0_deg[a]<g0_deg[b]) : (g0_deg[a]>g0_deg[b]);
-    });
     vector<int> vv1(g1.n);
     std::iota(std::begin(vv1), std::end(vv1), 0);
     if (arguments.random_seed != 0) {
         std::random_shuffle(std::begin(vv1), std::end(vv1));
     }
-    bool g0_dense = (size_t)sum(g0_deg) > g0.n*(g0.n-1);
-    std::stable_sort(std::begin(vv1), std::end(vv1), [&](int a, int b) {
-        return g0_dense ? (g1_deg[a]<g1_deg[b]) : (g1_deg[a]>g1_deg[b]);
-    });
+
+    if(!arguments.rutgers_solver)
+    {
+        cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Calculating vertex degrees for graph g0 ..." << endl;
+        vector<int> g0_deg = calculate_degrees(g0);
+        cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Calculating vertex degrees for graph g1 ..." << endl;
+        vector<int> g1_deg = calculate_degrees(g1);
+
+        // As implemented here, g1_dense and g0_dense are false for all instances
+        // in the Experimental Evaluation section of the paper.  Thus,
+        // we always sort the vertices in descending order of degree (or total degree,
+        // in the case of directed graphs.  Improvements could be made here: it would
+        // be nice if the program explored exactly the same search tree if both
+        // input graphs were complemented.
+        cout << "Sorting vertices by degree ..." << endl;
+        bool g1_dense = (size_t)sum(g1_deg) > g1.n*(g1.n-1);
+        std::stable_sort(std::begin(vv0), std::end(vv0), [&](int a, int b) {
+            return g1_dense ? (g0_deg[a]<g0_deg[b]) : (g0_deg[a]>g0_deg[b]);
+        });
+        bool g0_dense = (size_t)sum(g0_deg) > g0.n*(g0.n-1);
+        std::stable_sort(std::begin(vv1), std::end(vv1), [&](int a, int b) {
+            return g0_dense ? (g1_deg[a]<g1_deg[b]) : (g1_deg[a]>g1_deg[b]);
+        });
+    }
 
     cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Creating induced subgraph g0_sorted ..." << endl;
     struct Graph g0_sorted = induced_subgraph(g0, vv0);
