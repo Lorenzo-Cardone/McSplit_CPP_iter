@@ -26,6 +26,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <cmath>
+#include <unordered_set>
 
 
 using std::vector;
@@ -863,7 +864,7 @@ uint find_smallest_and_move_to_back (vector<int> &nodes, uint start, uint end, i
     return smallest;
 }
 
-int find_smallest_and_move_to_back_left (vector<int> &left, vector<int> &right, Bidomain bd)
+int find_smallest_and_move_to_back_left (vector<int> &left, vector<int> &right, Bidomain bd, std::unordered_set<int> * excluded)
 {
     uint idx_smallest = UINT_MAX;
     int best = UINT_MAX;
@@ -871,6 +872,9 @@ int find_smallest_and_move_to_back_left (vector<int> &left, vector<int> &right, 
     float smallest_distance = __FLT_MAX__;
     for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
         int left_node = left[left_idx];
+        if (arguments.rutgers_solver && excluded->contains(left_node)) {
+            continue;
+        }
         float current_smallest_distance = __FLT_MAX__;
         size_t current_count_smallest_instances = 0;
         for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
@@ -928,13 +932,13 @@ int find_smallest_and_move_to_back_right (int v, vector<int> &right, Bidomain bd
     return best;
 }
 
-uint solve_first_graph (vector<int> &left, vector<int> &right, Bidomain &bd)
+uint solve_first_graph (vector<int> &left, vector<int> &right, Bidomain &bd, std::unordered_set<int> * excluded = nullptr)
 {
     uint vtx = UINT_MAX;
     if (!arguments.new_solver && !arguments.rutgers_solver) {
         vtx = find_smallest_and_move_to_back(left, bd.l, bd.l + bd.left_len, -1);
     } else {
-        vtx = find_smallest_and_move_to_back_left(left, right, bd);
+        vtx = find_smallest_and_move_to_back_left(left, right, bd, excluded);
     }
     bd.left_len -= 1;
     return vtx;
@@ -1107,7 +1111,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
         vector<VtxPair>& current_sol,
         vector<vector<Bidomain>>& bidomains,
         HelpMeNewNoref &help_me,
-        bool &currently_aborting
+        bool &currently_aborting,
+        std::unordered_set<int> &used_left_depth2
     ) 
 {
     
@@ -1147,6 +1152,9 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             
             if (bound <= my_data.best_sol.size()) {
                 depth -= 1;
+                if (arguments.rutgers_solver && depth > 2) {
+                    depth = 2;
+                }
                 if (my_data.first_backtrack_sol.size() == 0) {
                     my_data.first_backtrack_sol = current_sol;
                     my_data.first_backtrack_sol_nodes = global_nodes;
@@ -1154,6 +1162,10 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 }
                 if (depth < 0) {
                     continue;
+                }
+                if (arguments.rutgers_solver && depth == 2) {
+                    current_sol.resize(1);
+                    bidomains.resize(1);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
@@ -1166,10 +1178,17 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             bool found = select_bidomain_no_idx(g0, g1, bidomains[depth/2], left, right, current_sol.size());
             if (!found) {
                 depth -= 1;
+                if (arguments.rutgers_solver && depth > 2) {
+                    depth = 2;
+                }
                 if (my_data.first_backtrack_sol.size() == 0) {
                     my_data.first_backtrack_sol = current_sol;
                     my_data.first_backtrack_sol_nodes = global_nodes;
                     my_data.first_backtrack_sol_time = my_data.best_sol_time;
+                }
+                if (arguments.rutgers_solver && depth == 2) {
+                    current_sol.resize(1);
+                    bidomains.resize(1);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
@@ -1178,7 +1197,17 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 bidomains[depth/2].back().right_len += 1;
                 continue;
             }
-            v = solve_first_graph(left, right, bidomains[depth/2].back());
+            if (arguments.rutgers_solver && depth <= 2) {
+                v = solve_first_graph(left, right, bidomains[depth/2].back(), &used_left_depth2);
+                if (v == -1) {
+                    bidomains[depth/2].back().left_len = 0;
+                    continue;
+                }
+            }
+            else {
+                std::unordered_set<int> empty_set;
+                v = solve_first_graph(left, right, bidomains[depth/2].back(), &empty_set);
+            }
             depth += 1;
         }
         else {
@@ -1253,10 +1282,14 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                             help_bidomains.emplace_back(filter_domains(help_bidomains[depth/2], help_left, help_right, g0, g1, help_v, help_w, arguments.directed || arguments.edge_labelled));
 
                             int help_depth = depth + 1;
+
+                            // unused
+                            std::unordered_set<int> help_rutgers_used_left_depth2;
+
                             // recursive call
-                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, help_left, help_right, global_nodes_helper, help_depth, help_cur_sol, help_bidomains, help_me, help_currently_aborting);
+                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, help_left, help_right, global_nodes_helper, help_depth, help_cur_sol, help_bidomains, help_me, help_currently_aborting, help_rutgers_used_left_depth2);
                             
-                            if (help_currently_aborting) {
+                            if (help_currently_aborting || arguments.rutgers_solver) {
                                 return;
                             }
                         }
@@ -1283,12 +1316,13 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
 
                         if (w != -1) { 
                             current_sol.emplace_back(VtxPair(v, w));
+                            used_left_depth2.insert(v);
                             
                             bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
 
-                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth + 1, current_sol, bidomains, help_me, currently_aborting);
+                            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, depth + 1, current_sol, bidomains, help_me, currently_aborting, used_left_depth2);
 
-                            if (currently_aborting) {
+                            if (currently_aborting || arguments.rutgers_solver) {
                                 return;
                             }
 
@@ -1619,6 +1653,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
     unsigned long long global_nodes = 0;
     std::atomic<unsigned long long> atomic_global_nodes{0};
     bool currently_aborting = false;
+    std::unordered_set<int> used_left_depth2;
 
     if (arguments.big_first) {
         for (size_t k=0; k<g0.n; k++) {
@@ -1658,7 +1693,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
                 vector<vector<Bidomain>> bidomains;
                 bidomains.emplace_back(domains);
                 cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve for goal " << goal << " ..." << endl;
-                new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me, currently_aborting);
+                new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me, currently_aborting, used_left_depth2);
                 help_me.kill_workers();
                 for (auto & n : help_me.nodes) {
                     global_nodes += n;
@@ -1711,7 +1746,7 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
             vector<vector<Bidomain>> bidomains;
             bidomains.emplace_back(domains);
             cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Starting solve ..." << endl;
-            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me, currently_aborting);
+            new_solve_par_noref(g0, g1, global_incumbent, per_thread_data, left, right, global_nodes, 0, current, bidomains, help_me, currently_aborting, used_left_depth2);
             
             best_sol_info.sol = per_thread_data[std::this_thread::get_id()].best_sol;
             best_sol_info.nodes = per_thread_data[std::this_thread::get_id()].best_sol_nodes;
