@@ -1148,7 +1148,12 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 clock_gettime(CLOCK_MONOTONIC, &my_data.best_sol_time);
             }
             global_nodes += 1;
-            bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+            if (bidomains.size() <= (size_t)(depth/2)) {
+                bound = current_sol.size();
+            }
+            else {
+                bound = current_sol.size() + calc_bound(bidomains[depth/2]);
+            }
             
             if (bound <= my_data.best_sol.size()) {
                 depth -= 1;
@@ -1164,8 +1169,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                     continue;
                 }
                 if (arguments.rutgers_solver && depth == 2) {
-                    current_sol.resize(1);
-                    bidomains.resize(1);
+                    current_sol.resize(2);
+                    bidomains.resize(2);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
@@ -1187,8 +1192,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                     my_data.first_backtrack_sol_time = my_data.best_sol_time;
                 }
                 if (arguments.rutgers_solver && depth == 2) {
-                    current_sol.resize(1);
-                    bidomains.resize(1);
+                    current_sol.resize(2);
+                    bidomains.resize(2);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
@@ -1200,13 +1205,17 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             if (arguments.rutgers_solver && depth <= 2) {
                 v = solve_first_graph(left, right, bidomains[depth/2].back(), &used_left_depth2);
                 if (v == -1) {
-                    bidomains[depth/2].back().left_len = 0;
+                    bidomains[depth/2].pop_back();
                     continue;
                 }
             }
             else {
                 std::unordered_set<int> empty_set;
                 v = solve_first_graph(left, right, bidomains[depth/2].back(), &empty_set);
+                if (v == -1) {
+                    bidomains[depth/2].pop_back();
+                    continue;
+                }
             }
             depth += 1;
         }
