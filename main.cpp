@@ -69,6 +69,7 @@ static struct argp_option options[] = {
     {"new_solver", 'n', 0, 0, "Use the new solver implementation", 0},
     {"neighbourhood_radius", 'e', "neighbourhood_radius", 0, "Radius for computing node descriptors (default=0 for no descriptors)", 0},
     {"limit_fan_in_fan_out", 'f', 0, 0, "Set to limit node descriptors to fan-in and fan-out counts", 0},
+    {"fanout_only", 'y', 0, 0, "Set to limit node descriptors to fan-out counts only", 0},
     {"distance_effect_dampening", 'z', "distance_effect_dampening", 0, "Dampening factor for distance effect in node descriptors (default=1.0, intended <1.0)", 0},
     { 0, 0, 0, 0, 0, 0 }
 };
@@ -96,6 +97,7 @@ static struct {
     size_t random_seed = 0;
     int neighbourhood_radius = 0;
     bool limit_fan_in_fan_out = false;
+    bool fanout_only = false;
     float distance_effect_dampening = 1.0;
 } arguments;
 
@@ -180,13 +182,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             arguments.random_seed = std::stoul(arg);
             break;
         case 'u':
-            if (arguments.new_solver)
-                fail("The -u (--rutgers_solver) and -n (--new_solver) options can't be used together.");
             arguments.rutgers_solver = true;
             break;
         case 'n':
-            if (arguments.rutgers_solver)
-                fail("The -u (--rutgers_solver) and -n (--new_solver) options can't be used together.");
             arguments.new_solver = true;
             break;
         case 'e':
@@ -194,6 +192,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state) {
             break;
         case 'f':
             arguments.limit_fan_in_fan_out = true;
+            break;
+        case 'y':
+            arguments.limit_fan_in_fan_out = true;
+            arguments.fanout_only = true;
             break;
         case 'z':
             arguments.distance_effect_dampening = std::stof(arg);
@@ -1659,9 +1661,9 @@ std::pair<vector<VtxPair>, unsigned long long> mcs(Graph & g0, Graph & g1, SolIn
     if (arguments.new_solver || arguments.rutgers_solver) {
         precomputed_distances.resize(g0.n);
         cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g0... " << endl;
-        computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+        computeNodeDesctriptors(g0, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.fanout_only, arguments.distance_effect_dampening);
         cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Computing node descriptors for g1... " << endl;
-        computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.distance_effect_dampening);
+        computeNodeDesctriptors(g1, arguments.neighbourhood_radius, arguments.limit_fan_in_fan_out, arguments.fanout_only, arguments.distance_effect_dampening);
         if (arguments.threads > 1) {
             precompute_all_distances(g0, g1, left, right, domains);
         }
@@ -1818,7 +1820,7 @@ int main(int argc, char** argv) {
     set_default_arguments();
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
-    if (arguments.rutgers_solver) {
+    if (arguments.rutgers_solver && !arguments.new_solver) {
         arguments.limit_fan_in_fan_out = false;
         arguments.distance_effect_dampening = 1.0;
         arguments.neighbourhood_radius = 2;
@@ -1882,7 +1884,7 @@ struct timespec s, finish;
         std::random_shuffle(std::begin(vv1), std::end(vv1));
     }
 
-    if(!arguments.rutgers_solver)
+    if(arguments.new_solver || !arguments.rutgers_solver)
     {
         cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] Calculating vertex degrees for graph g0 ..." << endl;
         vector<int> g0_deg = calculate_degrees(g0);
