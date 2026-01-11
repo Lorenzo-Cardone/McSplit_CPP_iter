@@ -20,4 +20,4 @@ Graph readGraph(char* filename, char format, bool directed, bool edge_labelled, 
 
 Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> mat);
 
-void computeNodeDesctriptors(struct Graph& g, int neighbourhood_radius, bool limit_fan_in_fan_out = false, float distance_effect_dampening = 1.0); // computes label_count_per_node_fan_in and label_count_per_node_fan_out, dampening within 0.1-1.0
+void computeNodeDesctriptors(struct Graph& g, int neighbourhood_radius, bool limit_fan_in_fan_out = false, bool fanout_only = false, float distance_effect_dampening = 1.0); // computes label_count_per_node_fan_in and label_count_per_node_fan_out, dampening within 0.1-1.0
