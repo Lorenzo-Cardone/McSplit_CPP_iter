@@ -228,7 +228,7 @@ struct Graph graphFromMtx(std::vector<std::unordered_map<size_t, unsigned int>> 
 
 enum Direction { FORWARD, BACKWARD, BOTH };
 
-void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_in_fan_out, float distance_effect_dampening)
+void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_in_fan_out, bool fanout_only, float distance_effect_dampening)
 {
 
     // for each node run BFS up to neighbourhood_radius
@@ -268,7 +268,7 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
                     visited_forward[current.first] = distance;
                     frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{neigh_idx, {distance, FORWARD}});
                 }
-                if (edge_label & 0xFFFF0000u) {
+                if ((edge_label & 0xFFFF0000u) && !fanout_only) {
                     visited_backward[current.first] = distance;
                     frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{neigh_idx, {distance, BACKWARD}});
                 }
@@ -276,10 +276,12 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
         }
 
         // visited all nodes, add them to label_count_per_node
-        for (const auto & [node_idx, distance] : visited_backward) {
-            unsigned int node_label = g.label[node_idx];
-            float effect = std::pow(distance_effect_dampening, static_cast<float>(distance - 1));
-            g.label_count_per_node_fan_in[start_node][node_label] += effect;
+        if (!fanout_only) {
+            for (const auto & [node_idx, distance] : visited_backward) {
+                unsigned int node_label = g.label[node_idx];
+                float effect = std::pow(distance_effect_dampening, static_cast<float>(distance - 1));
+                g.label_count_per_node_fan_in[start_node][node_label] += effect;
+            }
         }
         for (const auto & [node_idx, distance] : visited_forward) {
             unsigned int node_label = g.label[node_idx];
