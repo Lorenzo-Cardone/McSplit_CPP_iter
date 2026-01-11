@@ -1148,17 +1148,14 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 clock_gettime(CLOCK_MONOTONIC, &my_data.best_sol_time);
             }
             global_nodes += 1;
-            if (bidomains.size() <= (size_t)(depth/2)) {
-                bound = current_sol.size();
-            }
-            else {
-                bound = current_sol.size() + calc_bound(bidomains[depth/2]);
-            }
+            bound = current_sol.size() + calc_bound(bidomains[depth/2]);
             
             if (bound <= my_data.best_sol.size()) {
                 depth -= 1;
+                bool rutgers_shrink = false;
                 if (arguments.rutgers_solver && depth > 2) {
                     depth = 2;
+                    rutgers_shrink = true;
                 }
                 if (my_data.first_backtrack_sol.size() == 0) {
                     my_data.first_backtrack_sol = current_sol;
@@ -1168,38 +1165,50 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 if (depth < 0) {
                     continue;
                 }
-                if (arguments.rutgers_solver && depth == 2) {
+                if (rutgers_shrink) {
                     current_sol.resize(2);
-                    bidomains.resize(2);
+                    bidomains.resize(3);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
                 current_sol.pop_back();
                 bidomains.pop_back();
                 bidomains[depth/2].back().right_len += 1;
+                if (rutgers_shrink) {
+                    if (bidomains[depth/2].back().left_len == 0) {
+                        bidomains[depth/2].pop_back();
+                    }
+                }
                 continue;
             }
             w = -1;
             bool found = select_bidomain_no_idx(g0, g1, bidomains[depth/2], left, right, current_sol.size());
             if (!found) {
                 depth -= 1;
+                bool rutgers_shrink = false;
                 if (arguments.rutgers_solver && depth > 2) {
                     depth = 2;
+                    rutgers_shrink = true;
                 }
                 if (my_data.first_backtrack_sol.size() == 0) {
                     my_data.first_backtrack_sol = current_sol;
                     my_data.first_backtrack_sol_nodes = global_nodes;
                     my_data.first_backtrack_sol_time = my_data.best_sol_time;
                 }
-                if (arguments.rutgers_solver && depth == 2) {
+                if (rutgers_shrink) {
                     current_sol.resize(2);
-                    bidomains.resize(2);
+                    bidomains.resize(3);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
                 current_sol.pop_back();
                 bidomains.pop_back();
                 bidomains[depth/2].back().right_len += 1;
+                if (rutgers_shrink) {
+                    if (bidomains[depth/2].back().left_len == 0) {
+                        bidomains[depth/2].pop_back();
+                    }
+                }
                 continue;
             }
             if (arguments.rutgers_solver && depth <= 2) {
