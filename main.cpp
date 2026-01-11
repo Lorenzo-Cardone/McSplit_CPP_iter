@@ -1153,8 +1153,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             if (bound <= my_data.best_sol.size()) {
                 depth -= 1;
                 bool rutgers_shrink = false;
-                if (arguments.rutgers_solver && depth > 2) {
-                    depth = 2;
+                if (arguments.rutgers_solver && depth > 0) {
+                    depth = 0;
                     rutgers_shrink = true;
                 }
                 if (my_data.first_backtrack_sol.size() == 0) {
@@ -1166,8 +1166,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                     continue;
                 }
                 if (rutgers_shrink) {
-                    current_sol.resize(2);
-                    bidomains.resize(3);
+                    current_sol.resize(1);
+                    bidomains.resize(2);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
@@ -1186,8 +1186,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
             if (!found) {
                 depth -= 1;
                 bool rutgers_shrink = false;
-                if (arguments.rutgers_solver && depth > 2) {
-                    depth = 2;
+                if (arguments.rutgers_solver && depth > 0) {
+                    depth = 0;
                     rutgers_shrink = true;
                 }
                 if (my_data.first_backtrack_sol.size() == 0) {
@@ -1196,8 +1196,8 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                     my_data.first_backtrack_sol_time = my_data.best_sol_time;
                 }
                 if (rutgers_shrink) {
-                    current_sol.resize(2);
-                    bidomains.resize(3);
+                    current_sol.resize(1);
+                    bidomains.resize(2);
                 }
                 v = current_sol.back().v;
                 w = current_sol.back().w;
@@ -1211,7 +1211,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 }
                 continue;
             }
-            if (arguments.rutgers_solver && depth <= 2) {
+            if (arguments.rutgers_solver && depth <= 0) {
                 v = solve_first_graph(left, right, bidomains[depth/2].back(), &used_left_depth2);
                 if (v == -1) {
                     bidomains[depth/2].pop_back();
@@ -1236,6 +1236,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 w = solve_second_graph(v, right, bidomains[depth/2].back(), w);
                 if (w != -1) { 
                     current_sol.emplace_back(VtxPair(v, w));
+                    used_left_depth2.insert(v);
                     
                     bidomains.emplace_back(filter_domains(bidomains[depth/2], left, right, g0, g1, v, w, arguments.directed || arguments.edge_labelled));
 
