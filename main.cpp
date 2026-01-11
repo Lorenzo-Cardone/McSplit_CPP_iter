@@ -86,6 +86,7 @@ static struct {
     bool vertex_labelled;
     bool big_first;
     bool rutgers_solver;
+    bool strict_rutgers_solver;
     bool new_solver;
     Heuristic heuristic;
     char *filename1;
@@ -121,6 +122,7 @@ void set_default_arguments() {
     arguments.threads = std::thread::hardware_concurrency();
     arguments.arg_num = 0;
     arguments.rutgers_solver = false;
+    arguments.strict_rutgers_solver = false;
     arguments.new_solver = false;
 }
 
@@ -1213,7 +1215,7 @@ void new_solve_par_noref (const Graph & g0, const Graph & g1,
                 }
                 continue;
             }
-            if (arguments.rutgers_solver && depth <= 0) {
+            if ((arguments.rutgers_solver && depth <= 0) || arguments.strict_rutgers_solver) {
                 v = solve_first_graph(left, right, bidomains[depth/2].back(), &used_left_depth2);
                 if (v == -1) {
                     bidomains[depth/2].pop_back();
@@ -1824,6 +1826,7 @@ int main(int argc, char** argv) {
         arguments.limit_fan_in_fan_out = false;
         arguments.distance_effect_dampening = 1.0;
         arguments.neighbourhood_radius = 2;
+        arguments.strict_rutgers_solver = true;
     }
 
     if (arguments.random_seed == (size_t)-1) {
