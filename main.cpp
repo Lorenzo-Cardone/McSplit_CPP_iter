@@ -1825,7 +1825,7 @@ int main(int argc, char** argv) {
     if (arguments.rutgers_solver && !arguments.new_solver) {
         arguments.limit_fan_in_fan_out = false;
         arguments.distance_effect_dampening = 1.0;
-        arguments.neighbourhood_radius = 2;
+        arguments.neighbourhood_radius = 1;
         arguments.strict_rutgers_solver = true;
     }
 
