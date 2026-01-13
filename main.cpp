@@ -96,7 +96,7 @@ static struct {
     int threads;
     int arg_num;
     size_t random_seed = 0;
-    int neighbourhood_radius = 0;
+    int neighbourhood_radius = 1;
     bool limit_fan_in_fan_out = false;
     bool fanout_only = false;
     float distance_effect_dampening = 1.0;
@@ -1823,9 +1823,6 @@ int main(int argc, char** argv) {
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
     if (arguments.rutgers_solver && !arguments.new_solver) {
-        arguments.limit_fan_in_fan_out = false;
-        arguments.distance_effect_dampening = 1.0;
-        arguments.neighbourhood_radius = 1;
         arguments.strict_rutgers_solver = true;
     }
 
