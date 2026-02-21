@@ -96,7 +96,7 @@ static struct {
     int threads;
     int arg_num;
     size_t random_seed = 0;
-    int neighbourhood_radius = 1;
+    int neighbourhood_radius = 0;
     bool limit_fan_in_fan_out = false;
     bool fanout_only = false;
     float distance_effect_dampening = 1.0;
@@ -631,21 +631,41 @@ void compute_domain_distances(const Graph & g0, const Graph & g1,
                 for (const auto& [label, count] : g0.label_count_per_node_fan_out[left_node]) {
                     float count_in_g1 = g1.label_count_per_node_fan_out[right_node].contains(label) ?
                         g1.label_count_per_node_fan_out[right_node].at(label) : 0.0f;
-                    distances.emplace_back(std::pow(count - count_in_g1, 2));
+                    if (arguments.strict_rutgers_solver) {
+                        distances.emplace_back(count - count_in_g1);
+                    }
+                    else {
+                        distances.emplace_back(std::pow(count - count_in_g1, 2));
+                    }
                 }
                 for (const auto& [label, count] : g1.label_count_per_node_fan_out[right_node]) {
                     if (!g0.label_count_per_node_fan_out[left_node].contains(label)) {
-                        distances.emplace_back(std::pow(count, 2));
+                        if (arguments.strict_rutgers_solver) {
+                            distances.emplace_back(count);
+                        }
+                        else {
+                            distances.emplace_back(std::pow(count, 2));
+                        }
                     }
                 }
                 for (const auto& [label, count] : g0.label_count_per_node_fan_in[left_node]) {
                     float count_in_g1 = g1.label_count_per_node_fan_in[right_node].contains(label) ?
                         g1.label_count_per_node_fan_in[right_node].at(label) : 0.0f;
-                    distances.emplace_back(std::pow(count - count_in_g1, 2));
+                    if (arguments.strict_rutgers_solver) {
+                        distances.emplace_back(count - count_in_g1);
+                    }
+                    else {
+                        distances.emplace_back(std::pow(count - count_in_g1, 2));
+                    }
                 }
                 for (const auto& [label, count] : g1.label_count_per_node_fan_in[right_node]) {
                     if (!g0.label_count_per_node_fan_in[left_node].contains(label)) {
-                        distances.emplace_back(std::pow(count, 2));
+                        if (arguments.strict_rutgers_solver) {
+                            distances.emplace_back(count);
+                        }
+                        else {
+                            distances.emplace_back(std::pow(count, 2));
+                        }
                     }
                 }
                 precomputed_distances[left_node][right_node] = std::sqrt(std::accumulate(distances.begin(), distances.end(), 0.0f));
@@ -1823,6 +1843,9 @@ int main(int argc, char** argv) {
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
     if (arguments.rutgers_solver && !arguments.new_solver) {
+        arguments.limit_fan_in_fan_out = false;
+        arguments.distance_effect_dampening = 1.0;
+        arguments.neighbourhood_radius = 5;
         arguments.strict_rutgers_solver = true;
     }
 
