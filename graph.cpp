@@ -238,11 +238,17 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
         std::unordered_map<uint64_t, int> visited_backward; // node_idx, distance
         std::unordered_map<uint64_t, int> visited_forward; // node_idx, distance
 
+        frontier.reserve(g.n);
         frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{start_node, {0, BOTH}});
 
-        while (frontier.size() > 0) {
-            std::pair<uint64_t, std::pair<int, Direction>> current = frontier.front();
-            frontier.erase(frontier.begin());
+        size_t index = 0;
+
+        while (index < frontier.size()) {
+            std::pair<uint64_t, std::pair<int, Direction>> current = frontier[index++];
+
+            int distance = current.second.first + 1;
+            if (distance > neighbourhood_radius)
+                continue;
             // add all neighbours of nodes at distance d to distance d+1
             for (auto neigh : g.adjset[current.first]) {
                 size_t neigh_idx = neigh.first;
@@ -260,20 +266,27 @@ void computeNodeDesctriptors(Graph &g, int neighbourhood_radius, bool limit_fan_
                         }
                     }
                 }
-                int distance = current.second.first + 1;
-                if (distance > neighbourhood_radius)
-                    continue;
                 // exit edge is val, enter edge is val << 16
-                if (edge_label & 0xFFFFu) {
-                    visited_forward[current.first] = distance;
+                if ((edge_label & 0xFFFFu) || !limit_fan_in_fan_out) {
+                    if (visited_forward.contains(neigh_idx)) {
+                        continue;
+                    }
+                    visited_forward[neigh_idx] = distance;
                     frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{neigh_idx, {distance, FORWARD}});
                 }
-                if ((edge_label & 0xFFFF0000u) && !fanout_only) {
-                    visited_backward[current.first] = distance;
+                if ((edge_label & 0xFFFF0000u) && !fanout_only && limit_fan_in_fan_out) {
+                    if (visited_backward.contains(neigh_idx)) {
+                        continue;
+                    }
+                    visited_backward[neigh_idx] = distance;
                     frontier.emplace_back(std::pair<uint64_t, std::pair<int, Direction>>{neigh_idx, {distance, BACKWARD}});
                 }
             }
         }
+
+        // std::cout << "Index: " << index << std::endl;
+        // std::cout << visited_forward.size() << std::endl;
+        // std::cout << visited_backward.size() << std::endl;
 
         // visited all nodes, add them to label_count_per_node
         if (!fanout_only) {

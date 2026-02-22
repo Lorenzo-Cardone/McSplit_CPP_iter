@@ -618,57 +618,62 @@ void compute_domain_distances(const Graph & g0, const Graph & g1,
         const vector<int> & left, const vector<int> & right,
         Bidomain & bd) {
     // cout << "[" << duration_cast<std::chrono::duration<double>>(steady_clock::now() - progress_timer).count() << "s] \tPreprocessing bidomain " << bd.l << "-" << bd.l + bd.left_len - 1 << "...";// << endl;
-    #pragma omp parallel for
+    // #pragma omp parallel for
     for (int left_idx = bd.l; left_idx < bd.l + bd.left_len; left_idx++) {
-        int left_node = left[left_idx];
-        for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
-            int right_node = right[right_idx];
-            if (!precomputed_distances[left_node].contains(right_node)) {
-                // counter_distance_computations++;
-                // compute distance
-                vector<float> distances;
-                // euclidean distance between label count vectors
-                for (const auto& [label, count] : g0.label_count_per_node_fan_out[left_node]) {
-                    float count_in_g1 = g1.label_count_per_node_fan_out[right_node].contains(label) ?
-                        g1.label_count_per_node_fan_out[right_node].at(label) : 0.0f;
-                    if (arguments.strict_rutgers_solver) {
-                        distances.emplace_back(count - count_in_g1);
-                    }
-                    else {
-                        distances.emplace_back(std::pow(count - count_in_g1, 2));
-                    }
+        if (!abort_due_to_timeout.load()) {
+            int left_node = left[left_idx];
+            for (int right_idx = bd.r; right_idx < bd.r + bd.right_len; right_idx++) {
+                if (abort_due_to_timeout.load()) {
+                    break;
                 }
-                for (const auto& [label, count] : g1.label_count_per_node_fan_out[right_node]) {
-                    if (!g0.label_count_per_node_fan_out[left_node].contains(label)) {
+                int right_node = right[right_idx];
+                if (!precomputed_distances[left_node].contains(right_node)) {
+                    // counter_distance_computations++;
+                    // compute distance
+                    vector<float> distances;
+                    // euclidean distance between label count vectors
+                    for (const auto& [label, count] : g0.label_count_per_node_fan_out[left_node]) {
+                        float count_in_g1 = g1.label_count_per_node_fan_out[right_node].contains(label) ?
+                            g1.label_count_per_node_fan_out[right_node].at(label) : 0.0f;
                         if (arguments.strict_rutgers_solver) {
-                            distances.emplace_back(count);
+                            distances.emplace_back(std::abs(count - count_in_g1));
                         }
                         else {
-                            distances.emplace_back(std::pow(count, 2));
+                            distances.emplace_back(std::pow(count - count_in_g1, 2));
                         }
                     }
-                }
-                for (const auto& [label, count] : g0.label_count_per_node_fan_in[left_node]) {
-                    float count_in_g1 = g1.label_count_per_node_fan_in[right_node].contains(label) ?
-                        g1.label_count_per_node_fan_in[right_node].at(label) : 0.0f;
-                    if (arguments.strict_rutgers_solver) {
-                        distances.emplace_back(count - count_in_g1);
+                    for (const auto& [label, count] : g1.label_count_per_node_fan_out[right_node]) {
+                        if (!g0.label_count_per_node_fan_out[left_node].contains(label)) {
+                            if (arguments.strict_rutgers_solver) {
+                                distances.emplace_back(count);
+                            }
+                            else {
+                                distances.emplace_back(std::pow(count, 2));
+                            }
+                        }
                     }
-                    else {
-                        distances.emplace_back(std::pow(count - count_in_g1, 2));
-                    }
-                }
-                for (const auto& [label, count] : g1.label_count_per_node_fan_in[right_node]) {
-                    if (!g0.label_count_per_node_fan_in[left_node].contains(label)) {
+                    for (const auto& [label, count] : g0.label_count_per_node_fan_in[left_node]) {
+                        float count_in_g1 = g1.label_count_per_node_fan_in[right_node].contains(label) ?
+                            g1.label_count_per_node_fan_in[right_node].at(label) : 0.0f;
                         if (arguments.strict_rutgers_solver) {
-                            distances.emplace_back(count);
+                            distances.emplace_back(std::abs(count - count_in_g1));
                         }
                         else {
-                            distances.emplace_back(std::pow(count, 2));
+                            distances.emplace_back(std::pow(count - count_in_g1, 2));
                         }
                     }
+                    for (const auto& [label, count] : g1.label_count_per_node_fan_in[right_node]) {
+                        if (!g0.label_count_per_node_fan_in[left_node].contains(label)) {
+                            if (arguments.strict_rutgers_solver) {
+                                distances.emplace_back(count);
+                            }
+                            else {
+                                distances.emplace_back(std::pow(count, 2));
+                            }
+                        }
+                    }
+                    precomputed_distances[left_node][right_node] = std::sqrt(std::accumulate(distances.begin(), distances.end(), 0.0f));
                 }
-                precomputed_distances[left_node][right_node] = std::sqrt(std::accumulate(distances.begin(), distances.end(), 0.0f));
             }
         }
     }
